@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "kat_parser.h"
+
 #define NGCC_MAX_BUFFER_LEN (64ULL * 1024ULL * 1024ULL)
 
 typedef struct {
@@ -125,6 +127,104 @@ out:
     free(ct);
     free(ss_a);
     free(ss_b);
+    return rc;
+}
+
+int ngcc_kem_correctness_kat_file(const ngcc_api_t *api,
+                                  const char *kat_path,
+                                  unsigned long long *out_total,
+                                  unsigned long long *out_passed,
+                                  unsigned long long *out_failed) {
+    ngcc_kat_file_t kat;
+    unsigned long long sk_cap;
+    unsigned long long ct_cap;
+    unsigned long long ss_cap;
+    unsigned char *ss_out = NULL;
+    size_t i;
+    unsigned long long total = 0;
+    unsigned long long passed = 0;
+    unsigned long long failed = 0;
+    int rc = 1;
+
+    if (api == NULL || kat_path == NULL) {
+        return -1;
+    }
+
+    memset(&kat, 0, sizeof(kat));
+    if (ngcc_kat_parse_file(kat_path, &kat) != 0) {
+        return -1;
+    }
+
+    sk_cap = api->kem_get_sk_len_bytes();
+    ct_cap = api->kem_get_ct_len_bytes();
+    ss_cap = api->kem_get_ss_len_bytes();
+    if (!is_valid_len(sk_cap) || !is_valid_len(ct_cap) || !is_valid_len(ss_cap)) {
+        rc = -1;
+        goto out;
+    }
+
+    ss_out = (unsigned char *) malloc((size_t) ss_cap);
+    if (ss_out == NULL) {
+        rc = -1;
+        goto out;
+    }
+
+    for (i = 0; i < kat.count; ++i) {
+        const ngcc_kat_vector_t *vec = &kat.vectors[i];
+        static const char *const k_sk_alias[] = {"SK", "SECRETKEY"};
+        static const char *const k_ct_alias[] = {"CT", "CIPHERTEXT"};
+        static const char *const k_ss_alias[] = {"SS", "SHAREDSECRET", "OUTPUT"};
+        const ngcc_kat_field_t *sk = ngcc_kat_get_field_any(vec, k_sk_alias, sizeof(k_sk_alias) / sizeof(k_sk_alias[0]));
+        const ngcc_kat_field_t *ct = ngcc_kat_get_field_any(vec, k_ct_alias, sizeof(k_ct_alias) / sizeof(k_ct_alias[0]));
+        const ngcc_kat_field_t *ss = ngcc_kat_get_field_any(vec, k_ss_alias, sizeof(k_ss_alias) / sizeof(k_ss_alias[0]));
+        unsigned long long ss_out_len = ss_cap;
+        if (sk == NULL || ct == NULL || ss == NULL) {
+            continue;
+        }
+
+        total++;
+        if (sk->len == 0 || sk->len > sk_cap ||
+            ct->len == 0 || ct->len > ct_cap ||
+            ss->len == 0 || ss->len > ss_cap) {
+            failed++;
+            continue;
+        }
+
+        if (api->kem_dec((unsigned char *) sk->data,
+                         (unsigned long long) sk->len,
+                         (unsigned char *) ct->data,
+                         (unsigned long long) ct->len,
+                         ss_out,
+                         &ss_out_len) != 0) {
+            failed++;
+            continue;
+        }
+
+        if (ss_out_len != (unsigned long long) ss->len ||
+            memcmp(ss_out, ss->data, ss->len) != 0) {
+            failed++;
+            continue;
+        }
+
+        passed++;
+    }
+
+    if (total > 0) {
+        rc = (failed == 0) ? 0 : -1;
+    }
+
+out:
+    if (out_total != NULL) {
+        *out_total = total;
+    }
+    if (out_passed != NULL) {
+        *out_passed = passed;
+    }
+    if (out_failed != NULL) {
+        *out_failed = failed;
+    }
+    free(ss_out);
+    ngcc_kat_free(&kat);
     return rc;
 }
 

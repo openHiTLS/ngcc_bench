@@ -95,31 +95,31 @@ foreach(SRC ${TEST_SOURCES})
 endforeach()
 
 if(EXISTING_TEST_SOURCES)
-    add_executable(ngcc_bench ${EXISTING_TEST_SOURCES})
+    add_executable(ngcc_test_framework ${EXISTING_TEST_SOURCES})
 
-    target_include_directories(ngcc_bench PRIVATE
+    target_include_directories(ngcc_test_framework PRIVATE
         ${CMAKE_SOURCE_DIR}/tests/include
         ${CMAKE_SOURCE_DIR}/tests/utils
     )
 
     # dl: dlopen/dlsym  m: math
-    target_link_libraries(ngcc_bench dl m)
+    target_link_libraries(ngcc_test_framework dl m)
 
     # 传递路径宏，供运行时定位 code/ 和 reports/
-    target_compile_definitions(ngcc_bench PRIVATE
+    target_compile_definitions(ngcc_test_framework PRIVATE
         CODE_DIR="${CMAKE_SOURCE_DIR}/code"
         REPORT_DIR="${CMAKE_SOURCE_DIR}/reports"
     )
 
-    message(STATUS "  [测试工具] ngcc_bench <- tests/src/")
+    message(STATUS "  [测试工具] ngcc_test_framework <- tests/src/")
 else()
-    message(STATUS "  [跳过]   ngcc_bench (tests/src/ 下无源文件)")
+    message(STATUS "  [跳过]   ngcc_test_framework (tests/src/ 下无源文件)")
 endif()
 
 # ═══════════════════════════════════════════════════════════════════
 #  NGCC Benchmark 主程序 (ngcc_bench/)
 # ═══════════════════════════════════════════════════════════════════
-set(NGCC_BENCHMARK_SOURCES
+set(NGCC_BENCH_SOURCES
     ngcc_bench/src/main.c
     ngcc_bench/src/loader.c
     ngcc_bench/src/bench_core.c
@@ -129,12 +129,19 @@ set(NGCC_BENCHMARK_SOURCES
     ngcc_bench/src/bench_kem.c
     ngcc_bench/src/bench_kex.c
     ngcc_bench/src/stability.c
+    ngcc_bench/src/kat_parser.c
 )
 
-add_executable(ngcc_benchmark ${NGCC_BENCHMARK_SOURCES})
-target_include_directories(ngcc_benchmark PRIVATE
+add_executable(ngcc_bench ${NGCC_BENCH_SOURCES})
+target_include_directories(ngcc_bench PRIVATE
     ${CMAKE_SOURCE_DIR}/ngcc_bench/include
 )
-target_link_libraries(ngcc_benchmark dl m)
+target_link_libraries(ngcc_bench dl m)
 
-message(STATUS "  [测试工具] ngcc_benchmark <- ngcc_bench/src/")
+enable_testing()
+add_test(
+    NAME ngcc_cli_regression
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tests/run_cli_regression.sh $<TARGET_FILE:ngcc_bench>
+)
+
+message(STATUS "  [主程序]   ngcc_bench <- ngcc_bench/src/")

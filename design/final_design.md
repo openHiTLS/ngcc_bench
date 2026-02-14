@@ -27,7 +27,7 @@ This document finalizes the design for a Linux C benchmark tool that loads a use
 
 ### 3.1 Architecture Overview
 ```
-ngcc_benchmark
+ngcc_bench
 ├─ Loader (dlopen/dlsym + vtable)
 ├─ Benchmark Core (timing, cycles, RNG, stats)
 ├─ Algorithm Tests (hash/sig/kem/kex)
@@ -52,7 +52,7 @@ ngcc_benchmark
 
 ### 4.1 File Layout
 ```
-ngcc_benchmark/
+ngcc_bench/
 ├─ CMakeLists.txt
 ├─ include/
 │  ├─ ngcc_api.h
@@ -208,40 +208,68 @@ typedef struct {
 - Two modes:
   - **Duration**: run until elapsed seconds ≥ specified hours.
   - **Count**: run N random cases (default 3000).
+- Sampling mode:
+  - Aggregate multiple correctness runs into one stats sample window (`--stability-sample-ms`, default 1.0ms).
+  - Reduces timer quantization noise for very fast algorithms.
 - Uses correctness checks for selected test.
 - Handles SIGINT/SIGTERM gracefully (stop loop and report partial progress).
 
 ### 4.8 CLI Specification
 ```
-ngcc_benchmark --lib /path/to/lib.so
+ngcc_bench --lib /path/to/lib.so
                --test hash|sig|kem|kex|all
                --mode correctness|performance|memory|stability|all
                [--iterations N]
                [--duration-hours H]
+               [--stability-max-cases N]
+               [--stability-sample-ms MS]
                [--msg-len BYTES]
                [--digest-len-bits BITS]   (required if hash included)
                [--cycles on|off]
+               [--stable-throughput-cv-percent P]
+               [--stable-cycles-cv-percent P]
+               [--stable-time-cv-percent P]
+               [--stable-memory-growth-percent P]
+               [--stable-error-rate-percent P]
+               [--warning-throughput-cv-percent P]
+               [--warning-cycles-cv-percent P]
+               [--warning-time-cv-percent P]
+               [--warning-memory-growth-percent P]
+               [--warning-error-rate-percent P]
+               [--json-out PATH]
+               [--kat FILE]
 ```
 
 **Defaults**:
 - `--iterations`: 1000
 - `--duration-hours`: 6 (if stability by time)
+- `--stability-max-cases`: 3000
+- `--stability-sample-ms`: 1.0
 - `--msg-len`: 1024
 - `--cycles`: on (auto‑fallback if unavailable)
+- stable thresholds (%): throughput/cycles/time=5, memory=1, error=0
+- warning thresholds (%): throughput/cycles/time=10, memory=5, error=1
 
 **Errors**:
 - Missing `--lib`: fatal.
 - Hash test without `--digest-len-bits`: fatal.
+- Warning thresholds smaller than stable thresholds: fatal.
 - Any missing symbol: fatal with name.
 
 ### 4.9 Output Format (Plain Text)
 Example (single test):
 ```
 [hash][correctness] PASS
-[hash][performance] ops=1000 time_ms=12.3 ops/s=81234 cycles/op=402
+[hash][correctness] PASS total=128 passed=128 failed=0 source=kat
+[hash][performance] ops=1000 warmup=10 elapsed_ms=12.3 ops/s=81234
+[hash][performance][time] min_ms=0.010 mean_ms=0.012 median_ms=0.012 max_ms=0.018 stddev_ms=0.001 cv=5.2%
+[hash][performance][cycles] min=390 mean=402 median=401 max=455 stddev=12 cv=3.0%
 [memory] baseline_bytes=12328960 peak_bytes=15400960
 ```
 If cycles unavailable: omit `cycles/op` and print a one‑time warning.
+
+JSON report can be emitted with `--json-out /path/to/report.json` (`schema_version=3`, includes `options.stability_thresholds`).
+KAT vectors can be provided with `--kat /path/to/vectors.kat` for correctness runs (hash/sig/kem/kex).
 
 ---
 
@@ -281,7 +309,7 @@ make
 
 ### 6.2 Run
 ```
-./ngcc_benchmark --lib /path/to/lib.so \
+./ngcc_bench --lib /path/to/lib.so \
   --test all --mode all \
   --digest-len-bits 256
 ```

@@ -3,7 +3,9 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/perf_event.h>
+#include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/random.h>
@@ -15,7 +17,11 @@
 static unsigned long long read_tsc(void) {
     unsigned int lo;
     unsigned int hi;
-    __asm__ volatile ("rdtsc" : "=a"(lo), "=d"(hi));
+    __asm__ volatile ("lfence\n\t"
+                      "rdtsc"
+                      : "=a"(lo), "=d"(hi)
+                      :
+                      : "memory");
     return ((unsigned long long) hi << 32) | lo;
 }
 #endif
@@ -31,12 +37,83 @@ typedef struct {
     int perf_fd;
 } cycle_counter_t;
 
+typedef struct {
+    unsigned long long count;
+    double mean;
+    double m2;
+    double min;
+    double max;
+} running_stats_t;
+
 static int g_cycles_warning_printed = 0;
 
 static double timespec_ms_diff(const struct timespec *start, const struct timespec *end) {
     long sec = end->tv_sec - start->tv_sec;
     long nsec = end->tv_nsec - start->tv_nsec;
     return (double) sec * 1000.0 + (double) nsec / 1000000.0;
+}
+
+static void stats_init(running_stats_t *stats) {
+    memset(stats, 0, sizeof(*stats));
+}
+
+static void stats_update(running_stats_t *stats, double value) {
+    if (stats->count == 0) {
+        stats->count = 1;
+        stats->mean = value;
+        stats->m2 = 0.0;
+        stats->min = value;
+        stats->max = value;
+        return;
+    }
+
+    stats->count++;
+    {
+        double delta = value - stats->mean;
+        stats->mean += delta / (double) stats->count;
+        {
+            double delta2 = value - stats->mean;
+            stats->m2 += delta * delta2;
+        }
+    }
+
+    if (value < stats->min) {
+        stats->min = value;
+    }
+    if (value > stats->max) {
+        stats->max = value;
+    }
+}
+
+static double stats_stddev(const running_stats_t *stats) {
+    if (stats->count < 2) {
+        return 0.0;
+    }
+    return sqrt(stats->m2 / (double) (stats->count - 1));
+}
+
+static int compare_double(const void *a, const void *b) {
+    double da = *(const double *) a;
+    double db = *(const double *) b;
+    if (da < db) {
+        return -1;
+    }
+    if (da > db) {
+        return 1;
+    }
+    return 0;
+}
+
+static double compute_median(double *values, size_t count) {
+    if (values == NULL || count == 0) {
+        return 0.0;
+    }
+
+    qsort(values, count, sizeof(values[0]), compare_double);
+    if ((count % 2U) != 0U) {
+        return values[count / 2U];
+    }
+    return (values[(count / 2U) - 1U] + values[count / 2U]) * 0.5;
 }
 
 static void cycle_counter_close(cycle_counter_t *counter) {
@@ -170,12 +247,18 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
                             ngcc_perf_result_t *out_result) {
     unsigned long long i;
     unsigned long long warmup;
-    struct timespec ts_start;
-    struct timespec ts_end;
+    struct timespec ts_total_start;
+    struct timespec ts_total_end;
+    struct timespec ts_iter_start;
+    struct timespec ts_iter_end;
     cycle_counter_t counter;
-    unsigned long long cycle_begin = 0;
-    unsigned long long cycle_total = 0;
-    double elapsed_ms;
+    running_stats_t time_stats;
+    running_stats_t cycle_stats;
+    double *time_samples = NULL;
+    double *cycle_samples = NULL;
+    size_t sample_capacity = 0;
+    int keep_time_samples = 0;
+    int keep_cycle_samples = 0;
 
     if (cfg == NULL || op == NULL || out_result == NULL || cfg->iterations == 0) {
         return -1;
@@ -193,6 +276,8 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
     }
 
     memset(out_result, 0, sizeof(*out_result));
+    out_result->iterations = cfg->iterations;
+    out_result->warmup_iterations = warmup;
 
     if (cycle_counter_open(&counter, cfg->cycles_enabled) != 0) {
         if (!g_cycles_warning_printed) {
@@ -203,39 +288,118 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
         counter.perf_fd = -1;
     }
 
-    if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_start) != 0) {
-        cycle_counter_close(&counter);
-        return -1;
+    stats_init(&time_stats);
+    stats_init(&cycle_stats);
+
+    if (cfg->iterations <= (unsigned long long) SIZE_MAX) {
+        sample_capacity = (size_t) cfg->iterations;
     }
 
-    cycle_begin = cycle_counter_begin(&counter);
-
-    for (i = 0; i < cfg->iterations; ++i) {
-        if (op(op_ctx) != 0) {
-            cycle_counter_close(&counter);
-            return -1;
+    if (sample_capacity > 0) {
+        time_samples = (double *) malloc(sample_capacity * sizeof(time_samples[0]));
+        if (time_samples != NULL) {
+            keep_time_samples = 1;
+        }
+        if (counter.source != CYCLE_SOURCE_NONE) {
+            cycle_samples = (double *) malloc(sample_capacity * sizeof(cycle_samples[0]));
+            if (cycle_samples != NULL) {
+                keep_cycle_samples = 1;
+            }
         }
     }
 
-    cycle_total = cycle_counter_end(&counter, cycle_begin);
-
-    if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_end) != 0) {
+    if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_total_start) != 0) {
+        free(time_samples);
+        free(cycle_samples);
         cycle_counter_close(&counter);
         return -1;
     }
 
-    elapsed_ms = timespec_ms_diff(&ts_start, &ts_end);
+    for (i = 0; i < cfg->iterations; ++i) {
+        unsigned long long iter_cycle_start;
+        unsigned long long iter_cycles;
+        double iter_time_ms;
 
-    out_result->iterations = cfg->iterations;
-    out_result->elapsed_ms = elapsed_ms;
-    if (elapsed_ms > 0.0) {
-        out_result->ops_per_sec = ((double) cfg->iterations * 1000.0) / elapsed_ms;
+        if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_iter_start) != 0) {
+            free(time_samples);
+            free(cycle_samples);
+            cycle_counter_close(&counter);
+            return -1;
+        }
+
+        iter_cycle_start = cycle_counter_begin(&counter);
+        if (op(op_ctx) != 0) {
+            free(time_samples);
+            free(cycle_samples);
+            cycle_counter_close(&counter);
+            return -1;
+        }
+        iter_cycles = cycle_counter_end(&counter, iter_cycle_start);
+
+        if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_iter_end) != 0) {
+            free(time_samples);
+            free(cycle_samples);
+            cycle_counter_close(&counter);
+            return -1;
+        }
+
+        iter_time_ms = timespec_ms_diff(&ts_iter_start, &ts_iter_end);
+        stats_update(&time_stats, iter_time_ms);
+        if (keep_time_samples) {
+            time_samples[(size_t) i] = iter_time_ms;
+        }
+
+        if (counter.source != CYCLE_SOURCE_NONE) {
+            double iter_cycle_value = (double) iter_cycles;
+            stats_update(&cycle_stats, iter_cycle_value);
+            if (keep_cycle_samples) {
+                cycle_samples[(size_t) i] = iter_cycle_value;
+            }
+        }
     }
+
+    if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_total_end) != 0) {
+        free(time_samples);
+        free(cycle_samples);
+        cycle_counter_close(&counter);
+        return -1;
+    }
+
+    out_result->elapsed_ms = timespec_ms_diff(&ts_total_start, &ts_total_end);
+    if (out_result->elapsed_ms > 0.0) {
+        out_result->ops_per_sec = ((double) cfg->iterations * 1000.0) / out_result->elapsed_ms;
+    }
+
     out_result->cycles_available = (counter.source != CYCLE_SOURCE_NONE);
-    if (out_result->cycles_available) {
-        out_result->cycles_per_op = (double) cycle_total / (double) cfg->iterations;
+    out_result->time_ms_min = time_stats.min;
+    out_result->time_ms_mean = time_stats.mean;
+    out_result->time_ms_max = time_stats.max;
+    out_result->time_ms_stddev = stats_stddev(&time_stats);
+    if (time_stats.mean > 0.0) {
+        out_result->time_ms_cv_percent = (out_result->time_ms_stddev / time_stats.mean) * 100.0;
+    }
+    out_result->time_ms_median = keep_time_samples ? compute_median(time_samples, sample_capacity) : time_stats.mean;
+
+    if (out_result->cycles_available && cycle_stats.count > 0) {
+        out_result->cycles_per_op = cycle_stats.mean;
+        out_result->cycles_min = cycle_stats.min;
+        out_result->cycles_max = cycle_stats.max;
+        out_result->cycles_stddev = stats_stddev(&cycle_stats);
+        if (cycle_stats.mean > 0.0) {
+            out_result->cycles_cv_percent = (out_result->cycles_stddev / cycle_stats.mean) * 100.0;
+        }
+        out_result->cycles_median = keep_cycle_samples ? compute_median(cycle_samples, sample_capacity) : cycle_stats.mean;
+    } else {
+        out_result->cycles_per_op = 0.0;
+        out_result->cycles_min = 0.0;
+        out_result->cycles_max = 0.0;
+        out_result->cycles_stddev = 0.0;
+        out_result->cycles_cv_percent = 0.0;
+        out_result->cycles_median = 0.0;
     }
 
+    free(time_samples);
+    free(cycle_samples);
     cycle_counter_close(&counter);
     return 0;
 }

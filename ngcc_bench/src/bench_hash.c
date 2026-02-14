@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "kat_parser.h"
+
 #define NGCC_MAX_MSG_LEN (16U * 1024U * 1024U)
 
 typedef struct {
@@ -86,6 +88,88 @@ out:
     free(msg);
     free(digest_a);
     free(digest_b);
+    return rc;
+}
+
+int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
+                                   int digest_len_bits,
+                                   const char *kat_path,
+                                   unsigned long long *out_total,
+                                   unsigned long long *out_passed,
+                                   unsigned long long *out_failed) {
+    ngcc_kat_file_t kat;
+    unsigned char *digest = NULL;
+    size_t digest_len;
+    size_t i;
+    unsigned long long total = 0;
+    unsigned long long passed = 0;
+    unsigned long long failed = 0;
+    int rc = 1;
+
+    if (api == NULL || digest_len_bits <= 0 || kat_path == NULL) {
+        return -1;
+    }
+
+    memset(&kat, 0, sizeof(kat));
+    if (ngcc_kat_parse_file(kat_path, &kat) != 0) {
+        return -1;
+    }
+
+    digest_len = (size_t) ((digest_len_bits + 7) / 8);
+    if (digest_len == 0) {
+        goto out;
+    }
+
+    digest = (unsigned char *) malloc(digest_len);
+    if (digest == NULL) {
+        goto out;
+    }
+
+    for (i = 0; i < kat.count; ++i) {
+        const ngcc_kat_vector_t *vec = &kat.vectors[i];
+        static const char *const k_input_alias[] = {"INPUT", "MSG", "M", "MESSAGE"};
+        static const char *const k_output_alias[] = {"OUTPUT", "DIGEST", "MD", "HASH"};
+        const ngcc_kat_field_t *input = ngcc_kat_get_field_any(vec, k_input_alias, sizeof(k_input_alias) / sizeof(k_input_alias[0]));
+        const ngcc_kat_field_t *output = ngcc_kat_get_field_any(vec, k_output_alias, sizeof(k_output_alias) / sizeof(k_output_alias[0]));
+        if (input == NULL || output == NULL) {
+            continue;
+        }
+
+        total++;
+        if (output->len != digest_len) {
+            failed++;
+            continue;
+        }
+        if (api->CryptHash(digest_len_bits,
+                           input->data,
+                           (unsigned long long) input->len * 8ULL,
+                           digest) != 0) {
+            failed++;
+            continue;
+        }
+        if (memcmp(digest, output->data, digest_len) != 0) {
+            failed++;
+            continue;
+        }
+        passed++;
+    }
+
+    if (total > 0) {
+        rc = (failed == 0) ? 0 : -1;
+    }
+
+out:
+    if (out_total != NULL) {
+        *out_total = total;
+    }
+    if (out_passed != NULL) {
+        *out_passed = passed;
+    }
+    if (out_failed != NULL) {
+        *out_failed = failed;
+    }
+    free(digest);
+    ngcc_kat_free(&kat);
     return rc;
 }
 

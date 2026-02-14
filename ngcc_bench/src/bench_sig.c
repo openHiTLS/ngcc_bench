@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "kat_parser.h"
+
 #define NGCC_MAX_BUFFER_LEN (64ULL * 1024ULL * 1024ULL)
 
 typedef struct {
@@ -115,6 +117,84 @@ out:
     free(sk);
     free(sn);
     free(msg);
+    return rc;
+}
+
+int ngcc_sig_correctness_kat_file(const ngcc_api_t *api,
+                                  const char *kat_path,
+                                  unsigned long long *out_total,
+                                  unsigned long long *out_passed,
+                                  unsigned long long *out_failed) {
+    ngcc_kat_file_t kat;
+    unsigned long long pk_cap;
+    unsigned long long sn_cap;
+    size_t i;
+    unsigned long long total = 0;
+    unsigned long long passed = 0;
+    unsigned long long failed = 0;
+    int rc = 1;
+
+    if (api == NULL || kat_path == NULL) {
+        return -1;
+    }
+
+    memset(&kat, 0, sizeof(kat));
+    if (ngcc_kat_parse_file(kat_path, &kat) != 0) {
+        return -1;
+    }
+
+    pk_cap = api->sig_get_pk_len_bytes();
+    sn_cap = api->sig_get_sn_len_bytes();
+    if (!is_valid_len(pk_cap) || !is_valid_len(sn_cap)) {
+        rc = -1;
+        goto out;
+    }
+
+    for (i = 0; i < kat.count; ++i) {
+        const ngcc_kat_vector_t *vec = &kat.vectors[i];
+        static const char *const k_pk_alias[] = {"PK", "PUBLICKEY"};
+        static const char *const k_msg_alias[] = {"MSG", "INPUT", "M", "MESSAGE"};
+        static const char *const k_sn_alias[] = {"SN", "SIG", "SIGNATURE", "SM", "OUTPUT"};
+        const ngcc_kat_field_t *pk = ngcc_kat_get_field_any(vec, k_pk_alias, sizeof(k_pk_alias) / sizeof(k_pk_alias[0]));
+        const ngcc_kat_field_t *msg = ngcc_kat_get_field_any(vec, k_msg_alias, sizeof(k_msg_alias) / sizeof(k_msg_alias[0]));
+        const ngcc_kat_field_t *sn = ngcc_kat_get_field_any(vec, k_sn_alias, sizeof(k_sn_alias) / sizeof(k_sn_alias[0]));
+        if (pk == NULL || msg == NULL || sn == NULL) {
+            continue;
+        }
+
+        total++;
+        if (pk->len == 0 || pk->len > pk_cap || msg->len > NGCC_MAX_BUFFER_LEN ||
+            sn->len == 0 || sn->len > sn_cap) {
+            failed++;
+            continue;
+        }
+        if (api->sig_verify((unsigned char *) pk->data,
+                            (unsigned long long) pk->len,
+                            (unsigned char *) sn->data,
+                            (unsigned long long) sn->len,
+                            (unsigned char *) msg->data,
+                            (unsigned long long) msg->len) != 0) {
+            failed++;
+            continue;
+        }
+        passed++;
+    }
+
+    if (total > 0) {
+        rc = (failed == 0) ? 0 : -1;
+    }
+
+out:
+    if (out_total != NULL) {
+        *out_total = total;
+    }
+    if (out_passed != NULL) {
+        *out_passed = passed;
+    }
+    if (out_failed != NULL) {
+        *out_failed = failed;
+    }
+    ngcc_kat_free(&kat);
     return rc;
 }
 

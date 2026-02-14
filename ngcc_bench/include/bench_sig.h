@@ -7,6 +7,11 @@
 #include "ngcc_api.h"
 
 int ngcc_sig_correctness(const ngcc_api_t *api, size_t msg_len);
+int ngcc_sig_correctness_kat_file(const ngcc_api_t *api,
+                                  const char *kat_path,
+                                  unsigned long long *out_total,
+                                  unsigned long long *out_passed,
+                                  unsigned long long *out_failed);
 int ngcc_sig_performance(const ngcc_api_t *api,
                          size_t msg_len,
                          const ngcc_perf_config_t *cfg,

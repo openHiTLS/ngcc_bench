@@ -1,5 +1,12 @@
 # 算法测试平台设计方案 (V3)
 
+> [!IMPORTANT]
+> 本文是“目标设计 + 参考实现草案”的合集，不等同于当前仓库的已实现状态。  
+> 截至 2026-02-14，仓库已实现的是 `ngcc_bench` 非交互式 CLI 主程序（`ngcc_bench/src`），并已支持：
+> `hash/sig/kem/kex` + `correctness/performance/memory/stability` + 交互式入口（无参数运行）+ 可选 JSON 报告（`--json-out`）。  
+> 另外已支持 `hash/sig/kem/kex` 的 KAT（`--kat`）、性能分布统计（min/mean/median/max/stddev/CV）、稳定性阈值 CLI 可配置（`stable-*`/`warning-*`，JSON `schema_version=3` 记录阈值），以及稳定性窗口采样（`--stability-sample-ms`）；多工具内存分析等仍属于设计项。  
+> 详细一致性对照见：`docs/design_alignment.md`。
+
 ## 1. 概述
 
 ### 1.1 目标平台
@@ -1903,7 +1910,7 @@ mkdir build && cd build && cmake .. && make
 
 | 产物 | 输出位置 | 来源 |
 |------|---------|------|
-| `ngcc_bench` | `build/` | `tests/` 测试框架 |
+| `ngcc_test_framework` | `build/` | `tests/` 测试框架 |
 | `libXXX_ref.so` | `build/lib/` | `code/API_XXX/.../Reference_Implementation/` |
 | `libXXX_opt.so` | `build/lib/` | `code/API_XXX/.../Optimized_Implementation/` |
 | `libXXX_add.so` | `build/lib/` | `code/API_XXX/.../Additional_Implementation/` |
@@ -1929,15 +1936,15 @@ cmake .. -DIMPL_TYPE=additional && make
 ### 10.4 CMake 实现要点
 
 - **选手代码**：CMake 自动扫描 `code/*/Implementations/*/` 下的 `.c` 文件，编译为对应 `.so`
-- **测试框架**：编译 `tests/src/*.c` 为 `ngcc_bench` 可执行文件
-- **运行时加载**：`ngcc_bench` 通过 `dlopen` 加载选手 `.so`，不在编译时链接
+- **测试框架**：编译 `tests/src/*.c` 为 `ngcc_test_framework` 可执行文件
+- **运行时加载**：`ngcc_test_framework` 通过 `dlopen` 加载选手 `.so`，不在编译时链接
 - **路径宏**：`CODE_DIR` 和 `REPORT_DIR` 作为编译时宏传递给测试框架
 
 ### 10.5 运行方式
 
 ```bash
 # 测试指定的选手实现
-./ngcc_bench ./lib/libCryptHash_ref.so
+./ngcc_test_framework ./lib/libCryptHash_ref.so
 
 # 测试向量路径自动从 code/API_XXX/Test_Vector/ 读取
 ```
