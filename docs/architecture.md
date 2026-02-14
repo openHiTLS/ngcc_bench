@@ -41,7 +41,7 @@
 `performance`
 - 使用统一执行器 `ngcc_run_performance_op()`。
 - 预热策略：`max(10, iterations / 100)`。
-- 指标：`elapsed_ms`、`ops/s`、可选 `cycles/op`，以及 `min/mean/median/max/stddev/CV`。
+- 指标：`elapsed_ms/total_ms`、`ops/s`、`bytes/s`、可选 `cycles/op`，以及 `min/mean/median/max/stddev/CV`（time/cycles）。
 
 `memory`
 - `baseline_bytes`：执行 correctness 前读取当前 RSS。
@@ -65,7 +65,8 @@ cycle 统计优先级：
 
 1. `perf_event_open(PERF_COUNT_HW_CPU_CYCLES)`
 2. `x86_64` 下回退 `lfence + rdtsc`（降低乱序误差）
-3. 都不可用时只输出时间指标
+3. `ARMv8` 下回退 `cntvct_el0` 计数器
+4. 都不可用时只输出时间指标
 
 随机数据来源：
 

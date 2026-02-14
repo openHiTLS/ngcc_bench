@@ -9,13 +9,17 @@ typedef int (*ngcc_operation_fn)(void *ctx);
 typedef struct {
     unsigned long long iterations;
     int cycles_enabled;
+    unsigned long long bytes_per_op;
 } ngcc_perf_config_t;
 
 typedef struct {
     unsigned long long iterations;
     unsigned long long warmup_iterations;
     double elapsed_ms;
+    double total_time_ms;
     double ops_per_sec;
+    double bytes_per_sec;
+    double bytes_per_op;
     int cycles_available;
     double cycles_per_op;
     double time_ms_min;

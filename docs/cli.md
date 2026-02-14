@@ -82,6 +82,7 @@
 `--cycles`
 - 可选，默认 `on`。
 - `on`：尝试输出 `cycles/op`。
+- 计数源优先级：`perf_event_open` -> `x86_64 rdtsc` -> `ARMv8 cntvct_el0`。
 - `off`：只输出时间与吞吐。
 
 `--json-out`
@@ -158,7 +159,7 @@ JSON 报告：
 性能（可用 cycles）：
 
 ```text
-[sig][performance] ops=1000 warmup=10 elapsed_ms=88.123 ops/s=11347.008
+[sig][performance] ops=1000 warmup=10 elapsed_ms=88.123 total_ms=88.123 ops/s=11347.008 bytes/op=1024.000 bytes/s=11619335.772
 [sig][performance][time] min_ms=0.070000 mean_ms=0.088123 median_ms=0.086000 max_ms=0.130000 stddev_ms=0.010000 cv=11.348%
 [sig][performance][cycles] min=28000.000 mean=30211.200 median=30010.000 max=35800.000 stddev=1300.000 cv=4.303%
 ```
@@ -166,7 +167,7 @@ JSON 报告：
 性能（cycles 不可用或关闭）：
 
 ```text
-[sig][performance] ops=1000 warmup=10 elapsed_ms=88.123 ops/s=11347.008 cycles=unavailable
+[sig][performance] ops=1000 warmup=10 elapsed_ms=88.123 total_ms=88.123 ops/s=11347.008 bytes/op=1024.000 bytes/s=11619335.772 cycles=unavailable
 [sig][performance][time] min_ms=0.070000 mean_ms=0.088123 median_ms=0.086000 max_ms=0.130000 stddev_ms=0.010000 cv=11.348%
 ```
 
@@ -181,6 +182,7 @@ JSON 报告：
 ```text
 [kex][stability] STABLE cases=3000 elapsed_s=456.789
 [kex][stability][throughput] mean=1456789.000 stddev=33506.000 cv=2.300% min=1398234.000 max=1512456.000
+[kex][stability][throughput_bytes] mean=3059256900.000 stddev=70362600.000 cv=2.300% min=2936291400.000 max=3176157600.000 bytes/case=2100.000
 [kex][stability][cycles] mean=1672.000 stddev=38.000 cv=2.270% min=1523.000 max=2103.000
 [kex][stability][time] mean_ms=0.686500 stddev_ms=0.015800 cv=2.300% min_ms=0.640000 max_ms=0.740000
 [kex][stability][memory] start=12582912 end=12648448 min=12582912 max=12664832 growth=0.521%

@@ -21,7 +21,8 @@ static volatile sig_atomic_t g_stop_requested = 0;
 typedef enum {
     CYCLE_SOURCE_NONE = 0,
     CYCLE_SOURCE_PERF,
-    CYCLE_SOURCE_TSC
+    CYCLE_SOURCE_TSC,
+    CYCLE_SOURCE_ARMV8_CNTVCT
 } cycle_source_t;
 
 typedef struct {
@@ -47,6 +48,15 @@ static unsigned long long read_tsc(void) {
                       :
                       : "memory");
     return ((unsigned long long) hi << 32) | lo;
+}
+#endif
+
+#if defined(__aarch64__)
+static unsigned long long read_armv8_cntvct(void) {
+    unsigned long long counter;
+    __asm__ volatile ("isb" ::: "memory");
+    __asm__ volatile ("mrs %0, cntvct_el0" : "=r"(counter));
+    return counter;
 }
 #endif
 
@@ -112,6 +122,9 @@ static int cycle_counter_open(cycle_counter_t *counter, int cycles_enabled) {
 #if defined(__x86_64__)
     counter->source = CYCLE_SOURCE_TSC;
     return 0;
+#elif defined(__aarch64__)
+    counter->source = CYCLE_SOURCE_ARMV8_CNTVCT;
+    return 0;
 #else
     return -1;
 #endif
@@ -127,6 +140,12 @@ static unsigned long long cycle_counter_begin(cycle_counter_t *counter) {
 #if defined(__x86_64__)
     if (counter->source == CYCLE_SOURCE_TSC) {
         return read_tsc();
+    }
+#endif
+
+#if defined(__aarch64__)
+    if (counter->source == CYCLE_SOURCE_ARMV8_CNTVCT) {
+        return read_armv8_cntvct();
     }
 #endif
 
@@ -147,6 +166,13 @@ static unsigned long long cycle_counter_end(cycle_counter_t *counter, unsigned l
 #if defined(__x86_64__)
     if (counter->source == CYCLE_SOURCE_TSC) {
         unsigned long long end_cycles = read_tsc();
+        return end_cycles - start_cycles;
+    }
+#endif
+
+#if defined(__aarch64__)
+    if (counter->source == CYCLE_SOURCE_ARMV8_CNTVCT) {
+        unsigned long long end_cycles = read_armv8_cntvct();
         return end_cycles - start_cycles;
     }
 #endif
@@ -211,6 +237,26 @@ static int run_correctness_once(const ngcc_api_t *api,
     }
 }
 
+static unsigned long long throughput_bytes_per_case(const ngcc_api_t *api,
+                                                    ngcc_test_kind_t test_kind,
+                                                    size_t msg_len) {
+    if (api == NULL) {
+        return 0;
+    }
+
+    switch (test_kind) {
+        case NGCC_TEST_HASH:
+        case NGCC_TEST_SIG:
+            return (unsigned long long) msg_len;
+        case NGCC_TEST_KEM:
+            return api->kem_get_ct_len_bytes();
+        case NGCC_TEST_KEX:
+            return api->kex_get_total_msg_len_bytes();
+        default:
+            return 0;
+    }
+}
+
 static void append_reason(char *dst, size_t cap, const char *reason) {
     size_t cur = strlen(dst);
     size_t n;
@@ -259,6 +305,7 @@ int ngcc_run_stability(const ngcc_api_t *api,
     struct timespec ts_now;
     cycle_counter_t counter;
     running_stats_t throughput_stats;
+    running_stats_t throughput_bytes_stats;
     running_stats_t cycles_stats;
     running_stats_t time_stats;
     double max_seconds;
@@ -272,6 +319,7 @@ int ngcc_run_stability(const ngcc_api_t *api,
     uint64_t memory_max;
     int cycles_warning_printed = 0;
     ngcc_stability_thresholds_t effective_thresholds;
+    unsigned long long bytes_per_case;
 
     if (api == NULL || out_result == NULL || max_cases == 0 ||
         duration_hours <= 0.0 || sample_target_ms <= 0.0 || !isfinite(sample_target_ms)) {
@@ -307,8 +355,10 @@ int ngcc_run_stability(const ngcc_api_t *api,
     memory_max = memory_start;
 
     stats_init(&throughput_stats);
+    stats_init(&throughput_bytes_stats);
     stats_init(&cycles_stats);
     stats_init(&time_stats);
+    bytes_per_case = throughput_bytes_per_case(api, test_kind, msg_len);
     max_seconds = duration_hours * 3600.0;
 
     while (1) {
@@ -397,7 +447,11 @@ int ngcc_run_stability(const ngcc_api_t *api,
             double avg_case_ms = batch_ms / (double) batch_ok;
             stats_update(&time_stats, avg_case_ms);
             if (batch_ms > 0.0) {
-                stats_update(&throughput_stats, ((double) batch_ok * 1000.0) / batch_ms);
+                double throughput_ops = ((double) batch_ok * 1000.0) / batch_ms;
+                stats_update(&throughput_stats, throughput_ops);
+                if (bytes_per_case > 0U) {
+                    stats_update(&throughput_bytes_stats, throughput_ops * (double) bytes_per_case);
+                }
             }
             if (counter.source != CYCLE_SOURCE_NONE) {
                 stats_update(&cycles_stats, (double) batch_cycles / (double) batch_ok);
@@ -457,6 +511,14 @@ int ngcc_run_stability(const ngcc_api_t *api,
     out_result->throughput_max_ops = throughput_stats.max;
     if (throughput_stats.mean > 0.0) {
         out_result->throughput_cv_percent = out_result->throughput_stddev_ops * 100.0 / throughput_stats.mean;
+    }
+    out_result->bytes_per_case = (double) bytes_per_case;
+    out_result->throughput_mean_bytes = throughput_bytes_stats.mean;
+    out_result->throughput_stddev_bytes = stats_stddev(&throughput_bytes_stats);
+    out_result->throughput_min_bytes = throughput_bytes_stats.min;
+    out_result->throughput_max_bytes = throughput_bytes_stats.max;
+    if (throughput_bytes_stats.mean > 0.0) {
+        out_result->throughput_cv_percent_bytes = out_result->throughput_stddev_bytes * 100.0 / throughput_bytes_stats.mean;
     }
 
     out_result->cycles_available = (counter.source != CYCLE_SOURCE_NONE);

@@ -126,17 +126,19 @@ cmake -S . -B build -DIMPL_TYPE=all
 ```text
 [hash][correctness] PASS
 [hash][correctness] PASS total=128 passed=128 failed=0 source=kat
-[hash][performance] ops=1000 warmup=10 elapsed_ms=12.345 ops/s=80971.234
+[hash][performance] ops=1000 warmup=10 elapsed_ms=12.345 total_ms=12.345 ops/s=80971.234 bytes/op=1024.000 bytes/s=82914543.616
 [hash][performance][time] min_ms=0.011 mean_ms=0.012 median_ms=0.012 max_ms=0.018 stddev_ms=0.001 cv=5.211%
 [hash][performance][cycles] min=390.000 mean=401.200 median=399.000 max=455.000 stddev=12.300 cv=3.064%
 [memory] baseline_bytes=12328960 peak_bytes=15400960
 [kem][stability] STABLE cases=3000 elapsed_s=123.456
 [kem][stability][throughput] mean=12345.678 stddev=123.456 cv=1.000% min=12000.000 max=12600.000
+[kem][stability][throughput_bytes] mean=34567890.123 stddev=345678.901 cv=1.000% min=34000000.000 max=35000000.000 bytes/case=2800.000
 [kem][stability][memory] start=12328960 end=12394496 min=12328960 max=12410880 growth=0.531%
 [kem][stability][errors] total=3000 failed=0 rate=0.000000% status=STABLE
 ```
 
-如果硬件 cycle 计数不可用，程序会退化为仅时间统计（`ops/s` 仍会输出）。
+如果硬件 cycle 计数不可用，程序会退化为仅时间统计（`ops/s` / `bytes/s` 仍会输出）。
+cycle 统计优先级为：`perf_event_open` -> `x86_64 rdtsc` -> `ARMv8 cntvct_el0`。
 
 ## 6. 重要限制
 

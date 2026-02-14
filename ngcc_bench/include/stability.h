@@ -24,6 +24,12 @@ typedef struct {
     double throughput_cv_percent;
     double throughput_min_ops;
     double throughput_max_ops;
+    double throughput_mean_bytes;
+    double throughput_stddev_bytes;
+    double throughput_cv_percent_bytes;
+    double throughput_min_bytes;
+    double throughput_max_bytes;
+    double bytes_per_case;
 
     int cycles_available;
     double cycles_mean;

@@ -18,12 +18,12 @@
 - 动态库加载：`dlopen/dlsym` 全符号绑定，缺符号即失败。
 - 四类算法测试：`hash/sig/kem/kex`。
 - 四类模式：`correctness/performance/memory/stability`。
-- 性能回退策略：优先 `perf_event_open`，`x86_64` 回退 `rdtsc`，不可用时仅时间指标。
+- 性能回退策略：优先 `perf_event_open`，`x86_64` 回退 `rdtsc`，`ARMv8` 回退 `cntvct_el0`，不可用时仅时间指标。
 - 稳定性测试：支持时长上限、case 上限、`SIGINT/SIGTERM` 优雅中断。
 - 内存指标：`baseline RSS + peak RSS`（字节）。
 - 交互式入口：无参数运行可进入菜单配置执行。
 - KAT correctness：已支持 `hash/sig/kem/kex`（`--kat`）。
-- 性能统计：已输出 min/mean/median/max/stddev/CV。
+- 性能统计：已输出 min/mean/median/max/stddev/CV，并补充 `bytes/s` 与总时间。
 
 ## 3. 本次补充/修正（已落地）
 

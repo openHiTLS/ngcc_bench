@@ -232,6 +232,7 @@ int ngcc_kem_performance(const ngcc_api_t *api,
                          const ngcc_perf_config_t *cfg,
                          ngcc_perf_result_t *out_result) {
     kem_perf_ctx_t ctx;
+    ngcc_perf_config_t local_cfg;
 
     if (api == NULL || cfg == NULL || out_result == NULL) {
         return -1;
@@ -263,7 +264,9 @@ int ngcc_kem_performance(const ngcc_api_t *api,
         return -1;
     }
 
-    if (ngcc_run_performance_op(cfg, kem_perf_op, &ctx, out_result) != 0) {
+    local_cfg = *cfg;
+    local_cfg.bytes_per_op = ctx.ct_cap;
+    if (ngcc_run_performance_op(&local_cfg, kem_perf_op, &ctx, out_result) != 0) {
         free(ctx.pk);
         free(ctx.sk);
         free(ctx.ct);

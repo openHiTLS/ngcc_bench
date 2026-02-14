@@ -897,7 +897,10 @@ static int write_json_report(const cli_options_t *opts,
             fprintf(fp, "\"iterations\":%llu,", test->performance.iterations);
             fprintf(fp, "\"warmup_iterations\":%llu,", test->performance.warmup_iterations);
             fprintf(fp, "\"elapsed_ms\":%.6f,", test->performance.elapsed_ms);
+            fprintf(fp, "\"total_time_ms\":%.6f,", test->performance.total_time_ms);
             fprintf(fp, "\"ops_per_sec\":%.6f,", test->performance.ops_per_sec);
+            fprintf(fp, "\"bytes_per_sec\":%.6f,", test->performance.bytes_per_sec);
+            fprintf(fp, "\"bytes_per_op\":%.6f,", test->performance.bytes_per_op);
             fprintf(fp, "\"cycles_available\":%s,", test->performance.cycles_available ? "true" : "false");
             fprintf(fp, "\"cycles_per_op\":%.6f,", test->performance.cycles_per_op);
             fprintf(fp, "\"time_ms_min\":%.6f,", test->performance.time_ms_min);
@@ -932,6 +935,12 @@ static int write_json_report(const cli_options_t *opts,
             fprintf(fp, "\"throughput_cv_percent\":%.6f,", test->stability.throughput_cv_percent);
             fprintf(fp, "\"throughput_min_ops\":%.6f,", test->stability.throughput_min_ops);
             fprintf(fp, "\"throughput_max_ops\":%.6f,", test->stability.throughput_max_ops);
+            fprintf(fp, "\"throughput_mean_bytes\":%.6f,", test->stability.throughput_mean_bytes);
+            fprintf(fp, "\"throughput_stddev_bytes\":%.6f,", test->stability.throughput_stddev_bytes);
+            fprintf(fp, "\"throughput_cv_percent_bytes\":%.6f,", test->stability.throughput_cv_percent_bytes);
+            fprintf(fp, "\"throughput_min_bytes\":%.6f,", test->stability.throughput_min_bytes);
+            fprintf(fp, "\"throughput_max_bytes\":%.6f,", test->stability.throughput_max_bytes);
+            fprintf(fp, "\"bytes_per_case\":%.6f,", test->stability.bytes_per_case);
             fprintf(fp, "\"cycles_available\":%s,", test->stability.cycles_available ? "true" : "false");
             fprintf(fp, "\"cycles_mean\":%.6f,", test->stability.cycles_mean);
             fprintf(fp, "\"cycles_stddev\":%.6f,", test->stability.cycles_stddev);
@@ -1090,6 +1099,7 @@ static int run_performance_for_test(const ngcc_api_t *api,
 
     cfg.iterations = opts->iterations;
     cfg.cycles_enabled = opts->cycles_enabled;
+    cfg.bytes_per_op = 0;
 
     switch (kind) {
         case NGCC_TEST_HASH:
@@ -1117,12 +1127,15 @@ static int run_performance_for_test(const ngcc_api_t *api,
         return rc;
     }
 
-    printf("[%s][performance] ops=%llu warmup=%llu elapsed_ms=%.3f ops/s=%.3f%s\n",
+    printf("[%s][performance] ops=%llu warmup=%llu elapsed_ms=%.3f total_ms=%.3f ops/s=%.3f bytes/op=%.3f bytes/s=%.3f%s\n",
            name,
            result.iterations,
            result.warmup_iterations,
            result.elapsed_ms,
+           result.total_time_ms,
            result.ops_per_sec,
+           result.bytes_per_op,
+           result.bytes_per_sec,
            result.cycles_available ? "" : " cycles=unavailable");
     printf("[%s][performance][time] min_ms=%.6f mean_ms=%.6f median_ms=%.6f max_ms=%.6f stddev_ms=%.6f cv=%.3f%%\n",
            name,
@@ -1187,6 +1200,14 @@ static int run_stability_for_test(const ngcc_api_t *api,
                result.throughput_cv_percent,
                result.throughput_min_ops,
                result.throughput_max_ops);
+        printf("[%s][stability][throughput_bytes] mean=%.3f stddev=%.3f cv=%.3f%% min=%.3f max=%.3f bytes/case=%.3f\n",
+               name,
+               result.throughput_mean_bytes,
+               result.throughput_stddev_bytes,
+               result.throughput_cv_percent_bytes,
+               result.throughput_min_bytes,
+               result.throughput_max_bytes,
+               result.bytes_per_case);
         if (result.cycles_available) {
             printf("[%s][stability][cycles] mean=%.3f stddev=%.3f cv=%.3f%% min=%.3f max=%.3f\n",
                    name,

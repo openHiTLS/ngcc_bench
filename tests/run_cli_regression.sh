@@ -66,6 +66,20 @@ grep -q "\[sig\]\[correctness\] PASS" "$OUT1"
 grep -q "\[kem\]\[correctness\] PASS" "$OUT1"
 grep -q "\[kex\]\[correctness\] PASS" "$OUT1"
 
+OUTP="$TMP_DIR/performance.log"
+"$BIN" \
+  --lib "$MOCK_SO" \
+  --test hash \
+  --mode performance \
+  --digest-len-bits 8 \
+  --msg-len 64 \
+  --iterations 64 \
+  --cycles off > "$OUTP" 2>&1
+
+grep -q "\[hash\]\[performance\] ops=" "$OUTP"
+grep -q "bytes/s=" "$OUTP"
+grep -q "bytes/op=" "$OUTP"
+
 OUT2="$TMP_DIR/threshold_invalid.log"
 if "$BIN" \
   --lib "$MOCK_SO" \
@@ -110,9 +124,11 @@ OUT4="$TMP_DIR/stability.log"
   --json-out "$JSON_FILE" > "$OUT4" 2>&1
 
 grep -q "\[kem\]\[stability\]" "$OUT4"
+grep -q "\[kem\]\[stability\]\[throughput_bytes\]" "$OUT4"
 grep -q '"schema_version": 3' "$JSON_FILE"
 grep -q '"stability_sample_ms": 0.500000' "$JSON_FILE"
 grep -q '"stability_thresholds"' "$JSON_FILE"
+grep -q '"throughput_mean_bytes":' "$JSON_FILE"
 python3 "$ROOT_DIR/tests/validate_json_report.py" "$JSON_FILE" "$ROOT_DIR/docs/json_schema_v3.json"
 
 echo "cli regression passed"

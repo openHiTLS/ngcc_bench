@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  run_stability_profile.sh --benchmark /path/to/ngcc_benchmark
+  run_stability_profile.sh --benchmark /path/to/ngcc_bench
                            [--lib /path/to/lib.so]
                            [--profile quick|soak|nightly]
                            [--output-dir DIR]

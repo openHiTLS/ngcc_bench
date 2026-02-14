@@ -26,10 +26,20 @@ static unsigned long long read_tsc(void) {
 }
 #endif
 
+#if defined(__aarch64__)
+static unsigned long long read_armv8_cntvct(void) {
+    unsigned long long counter;
+    __asm__ volatile ("isb" ::: "memory");
+    __asm__ volatile ("mrs %0, cntvct_el0" : "=r"(counter));
+    return counter;
+}
+#endif
+
 typedef enum {
     CYCLE_SOURCE_NONE = 0,
     CYCLE_SOURCE_PERF,
-    CYCLE_SOURCE_TSC
+    CYCLE_SOURCE_TSC,
+    CYCLE_SOURCE_ARMV8_CNTVCT
 } cycle_source_t;
 
 typedef struct {
@@ -151,6 +161,9 @@ static int cycle_counter_open(cycle_counter_t *counter, int cycles_enabled) {
 #if defined(__x86_64__)
     counter->source = CYCLE_SOURCE_TSC;
     return 0;
+#elif defined(__aarch64__)
+    counter->source = CYCLE_SOURCE_ARMV8_CNTVCT;
+    return 0;
 #else
     return -1;
 #endif
@@ -166,6 +179,12 @@ static unsigned long long cycle_counter_begin(cycle_counter_t *counter) {
 #if defined(__x86_64__)
     if (counter->source == CYCLE_SOURCE_TSC) {
         return read_tsc();
+    }
+#endif
+
+#if defined(__aarch64__)
+    if (counter->source == CYCLE_SOURCE_ARMV8_CNTVCT) {
+        return read_armv8_cntvct();
     }
 #endif
 
@@ -186,6 +205,13 @@ static unsigned long long cycle_counter_end(cycle_counter_t *counter, unsigned l
 #if defined(__x86_64__)
     if (counter->source == CYCLE_SOURCE_TSC) {
         unsigned long long end_cycles = read_tsc();
+        return end_cycles - start_cycles;
+    }
+#endif
+
+#if defined(__aarch64__)
+    if (counter->source == CYCLE_SOURCE_ARMV8_CNTVCT) {
+        unsigned long long end_cycles = read_armv8_cntvct();
         return end_cycles - start_cycles;
     }
 #endif
@@ -366,8 +392,13 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
     }
 
     out_result->elapsed_ms = timespec_ms_diff(&ts_total_start, &ts_total_end);
+    out_result->total_time_ms = out_result->elapsed_ms;
     if (out_result->elapsed_ms > 0.0) {
         out_result->ops_per_sec = ((double) cfg->iterations * 1000.0) / out_result->elapsed_ms;
+    }
+    out_result->bytes_per_op = (double) cfg->bytes_per_op;
+    if (cfg->bytes_per_op > 0 && out_result->elapsed_ms > 0.0) {
+        out_result->bytes_per_sec = ((double) cfg->iterations * (double) cfg->bytes_per_op * 1000.0) / out_result->elapsed_ms;
     }
 
     out_result->cycles_available = (counter.source != CYCLE_SOURCE_NONE);

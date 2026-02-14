@@ -179,6 +179,7 @@ int ngcc_hash_performance(const ngcc_api_t *api,
                           const ngcc_perf_config_t *cfg,
                           ngcc_perf_result_t *out_result) {
     hash_perf_ctx_t ctx;
+    ngcc_perf_config_t local_cfg;
 
     if (api == NULL || cfg == NULL || out_result == NULL || digest_len_bits <= 0 || msg_len == 0 ||
         msg_len > NGCC_MAX_MSG_LEN) {
@@ -208,7 +209,9 @@ int ngcc_hash_performance(const ngcc_api_t *api,
         return -1;
     }
 
-    if (ngcc_run_performance_op(cfg, hash_perf_op, &ctx, out_result) != 0) {
+    local_cfg = *cfg;
+    local_cfg.bytes_per_op = (unsigned long long) msg_len;
+    if (ngcc_run_performance_op(&local_cfg, hash_perf_op, &ctx, out_result) != 0) {
         free(ctx.msg);
         free(ctx.digest);
         return -1;

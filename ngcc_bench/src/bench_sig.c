@@ -203,6 +203,7 @@ int ngcc_sig_performance(const ngcc_api_t *api,
                          const ngcc_perf_config_t *cfg,
                          ngcc_perf_result_t *out_result) {
     sig_perf_ctx_t ctx;
+    ngcc_perf_config_t local_cfg;
 
     if (api == NULL || cfg == NULL || out_result == NULL || msg_len == 0 || msg_len > NGCC_MAX_BUFFER_LEN) {
         return -1;
@@ -231,7 +232,9 @@ int ngcc_sig_performance(const ngcc_api_t *api,
         return -1;
     }
 
-    if (ngcc_run_performance_op(cfg, sig_perf_op, &ctx, out_result) != 0) {
+    local_cfg = *cfg;
+    local_cfg.bytes_per_op = (unsigned long long) msg_len;
+    if (ngcc_run_performance_op(&local_cfg, sig_perf_op, &ctx, out_result) != 0) {
         free(ctx.pk);
         free(ctx.sk);
         free(ctx.sn);
