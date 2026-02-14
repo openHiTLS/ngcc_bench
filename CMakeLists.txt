@@ -115,3 +115,26 @@ if(EXISTING_TEST_SOURCES)
 else()
     message(STATUS "  [跳过]   ngcc_bench (tests/src/ 下无源文件)")
 endif()
+
+# ═══════════════════════════════════════════════════════════════════
+#  NGCC Benchmark 主程序 (ngcc_bench/)
+# ═══════════════════════════════════════════════════════════════════
+set(NGCC_BENCHMARK_SOURCES
+    ngcc_bench/src/main.c
+    ngcc_bench/src/loader.c
+    ngcc_bench/src/bench_core.c
+    ngcc_bench/src/mem_stat.c
+    ngcc_bench/src/bench_hash.c
+    ngcc_bench/src/bench_sig.c
+    ngcc_bench/src/bench_kem.c
+    ngcc_bench/src/bench_kex.c
+    ngcc_bench/src/stability.c
+)
+
+add_executable(ngcc_benchmark ${NGCC_BENCHMARK_SOURCES})
+target_include_directories(ngcc_benchmark PRIVATE
+    ${CMAKE_SOURCE_DIR}/ngcc_bench/include
+)
+target_link_libraries(ngcc_benchmark dl m)
+
+message(STATUS "  [测试工具] ngcc_benchmark <- ngcc_bench/src/")
