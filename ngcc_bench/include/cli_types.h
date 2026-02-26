@@ -89,6 +89,8 @@ typedef struct {
     run_status_t memory_status;
     uint64_t memory_baseline_bytes;
     uint64_t memory_peak_bytes;
+    uint64_t memory_heap_baseline_bytes;
+    uint64_t memory_heap_peak_bytes;
 } run_report_t;
 
 /* ── Shared test table (defined in main.c) ─────────────────────── */

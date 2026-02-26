@@ -1,6 +1,4 @@
 #include "stability.h"
-#include "cycle_counter.h"
-#include "stats_util.h"
 
 #include <math.h>
 #include <signal.h>
@@ -13,7 +11,9 @@
 #include "bench_kem.h"
 #include "bench_kex.h"
 #include "bench_sig.h"
+#include "cycle_counter.h"
 #include "mem_stat.h"
+#include "stats_util.h"
 
 static volatile sig_atomic_t g_stop_requested = 0;
 
@@ -291,6 +291,13 @@ int ngcc_run_stability(const ngcc_api_t *api,
             memory_max = current_mem;
         }
 
+        {
+            uint64_t peak_rss = ngcc_mem_peak_rss_bytes();
+            if (peak_rss > memory_max) {
+                memory_max = peak_rss;
+            }
+        }
+
         if (batch_failed || loop_failed) {
             break;
         }
@@ -361,6 +368,7 @@ int ngcc_run_stability(const ngcc_api_t *api,
     out_result->memory_end_bytes = memory_end;
     out_result->memory_min_bytes = memory_min;
     out_result->memory_max_bytes = memory_max;
+    out_result->memory_peak_rss_bytes = ngcc_mem_peak_rss_bytes();
     if (memory_start > 0U) {
         out_result->memory_growth_percent = ((double) ((long long) memory_end - (long long) memory_start) * 100.0) /
                                             (double) memory_start;

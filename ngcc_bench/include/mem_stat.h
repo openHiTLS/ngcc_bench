@@ -5,5 +5,6 @@
 
 uint64_t ngcc_mem_current_rss_bytes(void);
 uint64_t ngcc_mem_peak_rss_bytes(void);
+uint64_t ngcc_mem_heap_bytes(void);
 
 #endif
