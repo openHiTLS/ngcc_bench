@@ -255,12 +255,13 @@ static int run_stability_for_test(const ngcc_api_t *api,
                result.time_cv_percent,
                result.time_min_ms,
                result.time_max_ms);
-        printf("[%s][stability][memory] start=%llu end=%llu min=%llu max=%llu growth=%.3f%%\n",
+        printf("[%s][stability][memory] start=%llu end=%llu min=%llu max=%llu peak_rss=%llu growth=%.3f%%\n",
                name,
                (unsigned long long) result.memory_start_bytes,
                (unsigned long long) result.memory_end_bytes,
                (unsigned long long) result.memory_min_bytes,
                (unsigned long long) result.memory_max_bytes,
+               (unsigned long long) result.memory_peak_rss_bytes,
                result.memory_growth_percent);
         printf("[%s][stability][errors] total=%llu failed=%llu rate=%.6f%% status=%s\n",
                name,
@@ -303,10 +304,13 @@ static int run_memory_mode(const ngcc_api_t *api,
                            run_report_t *report) {
     uint64_t baseline_bytes;
     uint64_t peak_bytes;
+    uint64_t heap_baseline;
+    uint64_t heap_end;
     size_t i;
     int failed = 0;
 
     baseline_bytes = ngcc_mem_current_rss_bytes();
+    heap_baseline = ngcc_mem_heap_bytes();
 
     for (i = 0; i < sizeof(k_tests) / sizeof(k_tests[0]); ++i) {
         if ((opts->test_mask & k_tests[i].mask) == 0) {
@@ -318,12 +322,18 @@ static int run_memory_mode(const ngcc_api_t *api,
     }
 
     peak_bytes = ngcc_mem_peak_rss_bytes();
-    printf("[memory] baseline_bytes=%llu peak_bytes=%llu\n",
+    heap_end = ngcc_mem_heap_bytes();
+    printf("[memory] baseline_bytes=%llu peak_bytes=%llu heap_baseline=%llu heap_end=%llu heap_delta=%lld\n",
            (unsigned long long) baseline_bytes,
-           (unsigned long long) peak_bytes);
+           (unsigned long long) peak_bytes,
+           (unsigned long long) heap_baseline,
+           (unsigned long long) heap_end,
+           (long long) heap_end - (long long) heap_baseline);
 
     report->memory_baseline_bytes = baseline_bytes;
     report->memory_peak_bytes = peak_bytes;
+    report->memory_heap_baseline_bytes = heap_baseline;
+    report->memory_heap_peak_bytes = heap_end;
     report->memory_status = failed ? STATUS_FAIL : STATUS_PASS;
     return failed ? -1 : 0;
 }

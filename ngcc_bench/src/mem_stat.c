@@ -4,6 +4,13 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
+#if defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 33))
+#include <malloc.h>
+#define HAVE_MALLINFO2 1
+#else
+#define HAVE_MALLINFO2 0
+#endif
+
 uint64_t ngcc_mem_current_rss_bytes(void) {
     FILE *fp = fopen("/proc/self/statm", "r");
     unsigned long total_pages = 0;
@@ -37,4 +44,13 @@ uint64_t ngcc_mem_peak_rss_bytes(void) {
     }
 
     return (uint64_t) usage.ru_maxrss * 1024ULL;
+}
+
+uint64_t ngcc_mem_heap_bytes(void) {
+#if HAVE_MALLINFO2
+    struct mallinfo2 mi = mallinfo2();
+    return (uint64_t) mi.uordblks;
+#else
+    return 0;
+#endif
 }

@@ -223,6 +223,7 @@ int write_json_report(const cli_options_t *opts,
             fprintf(fp, "\"memory_end_bytes\":%llu,", (unsigned long long) test->stability.memory_end_bytes);
             fprintf(fp, "\"memory_min_bytes\":%llu,", (unsigned long long) test->stability.memory_min_bytes);
             fprintf(fp, "\"memory_max_bytes\":%llu,", (unsigned long long) test->stability.memory_max_bytes);
+            fprintf(fp, "\"memory_peak_rss_bytes\":%llu,", (unsigned long long) test->stability.memory_peak_rss_bytes);
             fprintf(fp, "\"memory_growth_percent\":%.6f,", test->stability.memory_growth_percent);
             fprintf(fp, "\"total_executions\":%llu,", test->stability.total_executions);
             fprintf(fp, "\"error_count\":%llu,", test->stability.error_count);
@@ -247,7 +248,9 @@ int write_json_report(const cli_options_t *opts,
     json_write_escaped(fp, status_to_text(report->memory_status));
     fprintf(fp, ",\n");
     fprintf(fp, "    \"baseline_bytes\": %llu,\n", (unsigned long long) report->memory_baseline_bytes);
-    fprintf(fp, "    \"peak_bytes\": %llu\n", (unsigned long long) report->memory_peak_bytes);
+    fprintf(fp, "    \"peak_bytes\": %llu,\n", (unsigned long long) report->memory_peak_bytes);
+    fprintf(fp, "    \"heap_baseline_bytes\": %llu,\n", (unsigned long long) report->memory_heap_baseline_bytes);
+    fprintf(fp, "    \"heap_peak_bytes\": %llu\n", (unsigned long long) report->memory_heap_peak_bytes);
     fprintf(fp, "  },\n");
 
     fprintf(fp, "  \"overall\": {\n");

@@ -1,18 +1,17 @@
 #include "bench_core.h"
-#include "cycle_counter.h"
-#include "stats_util.h"
 
 #include <errno.h>
 #include <fcntl.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/random.h>
 #include <time.h>
 #include <unistd.h>
 
-#if defined(__linux__)
-#include <sys/random.h>
-#endif
+#include "cycle_counter.h"
+#include "stats_util.h"
 
 static int g_cycles_warning_printed = 0;
 
@@ -40,15 +39,15 @@ static double compute_median(double *values, size_t count) {
     return (values[(count / 2U) - 1U] + values[count / 2U]) * 0.5;
 }
 
-static int fill_random_urandom(unsigned char *buf, size_t len) {
+int ngcc_fill_random(unsigned char *buf, size_t len) {
     size_t offset = 0;
-    int fd = open("/dev/urandom", O_RDONLY);
-    if (fd < 0) {
+
+    if (buf == NULL) {
         return -1;
     }
 
     while (offset < len) {
-        ssize_t got = read(fd, buf + offset, len - offset);
+        ssize_t got = getrandom(buf + offset, len - offset, 0);
         if (got > 0) {
             offset += (size_t) got;
             continue;
@@ -56,28 +55,21 @@ static int fill_random_urandom(unsigned char *buf, size_t len) {
         if (got < 0 && errno == EINTR) {
             continue;
         }
-        close(fd);
-        return -1;
+        break;
     }
 
-    close(fd);
-    return 0;
-}
-
-int ngcc_fill_random(unsigned char *buf, size_t len) {
-    if (buf == NULL) {
-        return -1;
+    if (offset == len) {
+        return 0;
     }
 
-#if defined(__APPLE__)
-    /* arc4random_buf never fails */
-    arc4random_buf(buf, len);
-    return 0;
-#elif defined(__linux__)
     {
-        size_t offset = 0;
+        int fd = open("/dev/urandom", O_RDONLY);
+        if (fd < 0) {
+            return -1;
+        }
+
         while (offset < len) {
-            ssize_t got = getrandom(buf + offset, len - offset, 0);
+            ssize_t got = read(fd, buf + offset, len - offset);
             if (got > 0) {
                 offset += (size_t) got;
                 continue;
@@ -85,16 +77,14 @@ int ngcc_fill_random(unsigned char *buf, size_t len) {
             if (got < 0 && errno == EINTR) {
                 continue;
             }
-            break;
+            close(fd);
+            return -1;
         }
-        if (offset == len) {
-            return 0;
-        }
-    }
-    /* fall through to /dev/urandom */
-#endif
 
-    return fill_random_urandom(buf, len);
+        close(fd);
+    }
+
+    return 0;
 }
 
 int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
@@ -176,6 +166,7 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
         unsigned long long iter_cycles;
         double iter_time_ms;
 
+        iter_cycle_start = cycle_counter_begin(&counter);
         if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_iter_start) != 0) {
             free(time_samples);
             free(cycle_samples);
@@ -183,14 +174,12 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
             return -1;
         }
 
-        iter_cycle_start = cycle_counter_begin(&counter);
         if (op(op_ctx) != 0) {
             free(time_samples);
             free(cycle_samples);
             cycle_counter_close(&counter);
             return -1;
         }
-        iter_cycles = cycle_counter_end(&counter, iter_cycle_start);
 
         if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_iter_end) != 0) {
             free(time_samples);
@@ -198,6 +187,7 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
             cycle_counter_close(&counter);
             return -1;
         }
+        iter_cycles = cycle_counter_end(&counter, iter_cycle_start);
 
         iter_time_ms = timespec_ms_diff(&ts_iter_start, &ts_iter_end);
         stats_update(&time_stats, iter_time_ms);
