@@ -4,9 +4,14 @@
 
 核心目录：`ngcc_bench/`
 
-- `src/main.c`：CLI/交互菜单、模式分发、总体退出码、JSON 报告输出
-- `src/loader.c`：`dlopen/dlsym` 加载并绑定 API
-- `src/bench_core.c`：计时、cycle 计数、随机数据填充、统一性能执行器
+- `src/main.c`：程序入口、模式分发、总体退出码
+- `src/cli_parser.c`：CLI 参数解析与校验
+- `src/interactive.c`：交互式菜单模式
+- `src/json_report.c`：JSON 报告生成
+- `src/loader.c`：`dlopen/dlsym` 按需加载 API 符号（按 `--test` 控制）
+- `src/bench_core.c`：计时、跨平台随机数据填充、统一性能执行器
+- `src/cycle_counter.c`：CPU 周期计数器（perf/TSC/ARMv8）
+- `src/stats_util.c`：Welford 在线统计（均值/方差/标准差）
 - `src/bench_hash.c`：Hash 正确性与性能
 - `src/bench_sig.c`：SIG 正确性与性能
 - `src/bench_kem.c`：KEM 正确性与性能
@@ -15,13 +20,13 @@
 - `src/stability.c`：稳定性循环执行与信号中断处理
 - `src/kat_parser.c`：KAT 文件解析（用于 `hash/sig/kem/kex` correctness）
 
-头文件位于：`ngcc_bench/include/`
+头文件位于：`ngcc_bench/include/`（包含 `cli_types.h` 共享类型定义）
 
 ## 2. 执行流程
 
-1. 解析 CLI 参数并填默认值（无参数时进入交互菜单）。
+1. 解析 CLI 参数并填默认值（无参数时进入交互菜单）。支持 `--version` 查看版本号。
 2. 校验参数（例如 hash 被选中时必须有 `--digest-len-bits`）。
-3. 调用加载器打开 `.so` 并绑定全部 API。
+3. 调用加载器打开 `.so` 并按 `--test` 按需绑定对应 API 符号组。
 4. 按 `--mode` 选择执行：
    - `correctness`：每类算法跑一次正确性检查。
    - `performance`：按 `iterations` 进行预热和计时循环。
@@ -68,24 +73,26 @@ cycle 统计优先级：
 3. `ARMv8` 下回退 `cntvct_el0` 计数器
 4. 都不可用时只输出时间指标
 
-随机数据来源：
+随机数据来源（跨平台）：
 
-1. 首选 `getrandom(2)`
-2. 失败回退 `/dev/urandom`
+1. macOS：`arc4random_buf()`
+2. Linux：`getrandom(2)`，失败回退 `/dev/urandom`
+3. 其他：`/dev/urandom`
 
 ## 5. 关键限制
 
-- 加载器是全量符号解析，不支持“按测试子集懒加载”。
+- 加载器按 `--test` 按需加载对应符号组，`.so` 只需导出实际被测的算法符号。
 - 内存指标是进程级口径，不是每个算法独立进程隔离口径。
 - JSON 报告为可选功能，需通过 `--json-out` 显式启用。
 - JSON 结构定义：`docs/json_schema_v3.json`（配套说明：`docs/json_schema.md`）。
 - `--kat` 可用于 `hash/sig/kem/kex` 的 correctness；若某算法无可用向量，会回退到运行时回归检查。
 
-## 6. 回归测试
+## 6. 测试
 
-- 已接入 CTest：`ngcc_cli_regression`
-- 测试脚本：`tests/run_cli_regression.sh`
-- mock 动态库源码：`tests/mock/mock_ngcc.c`
+- 已接入 CTest：`ngcc_cli_regression` + `ngcc_unit_tests`
+- CLI 回归测试脚本：`tests/run_cli_regression.sh`
+- 单元测试：`tests/test_unit.c`（16 个测试覆盖 stats/cli_parser/timespec）
+- mock 动态库源码：`tests/mock/mock_ngcc.c`、`tests/mock/mock_hash_only.c`
 - 稳定性专项脚本：`tests/run_stability_profile.sh`
 - 稳定性基线对比脚本：`tests/compare_stability_reports.py`
 - 稳定性 CI 说明：`docs/stability_ci.md`
