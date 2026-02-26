@@ -1,106 +1,20 @@
 #include "bench_core.h"
+#include "cycle_counter.h"
+#include "stats_util.h"
 
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/perf_event.h>
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
-#include <sys/random.h>
-#include <sys/syscall.h>
 #include <time.h>
 #include <unistd.h>
 
-#if defined(__x86_64__)
-static unsigned long long read_tsc(void) {
-    unsigned int lo;
-    unsigned int hi;
-    __asm__ volatile ("lfence\n\t"
-                      "rdtsc"
-                      : "=a"(lo), "=d"(hi)
-                      :
-                      : "memory");
-    return ((unsigned long long) hi << 32) | lo;
-}
+#if defined(__linux__)
+#include <sys/random.h>
 #endif
-
-#if defined(__aarch64__)
-static unsigned long long read_armv8_cntvct(void) {
-    unsigned long long counter;
-    __asm__ volatile ("isb" ::: "memory");
-    __asm__ volatile ("mrs %0, cntvct_el0" : "=r"(counter));
-    return counter;
-}
-#endif
-
-typedef enum {
-    CYCLE_SOURCE_NONE = 0,
-    CYCLE_SOURCE_PERF,
-    CYCLE_SOURCE_TSC,
-    CYCLE_SOURCE_ARMV8_CNTVCT
-} cycle_source_t;
-
-typedef struct {
-    cycle_source_t source;
-    int perf_fd;
-} cycle_counter_t;
-
-typedef struct {
-    unsigned long long count;
-    double mean;
-    double m2;
-    double min;
-    double max;
-} running_stats_t;
 
 static int g_cycles_warning_printed = 0;
-
-static double timespec_ms_diff(const struct timespec *start, const struct timespec *end) {
-    long sec = end->tv_sec - start->tv_sec;
-    long nsec = end->tv_nsec - start->tv_nsec;
-    return (double) sec * 1000.0 + (double) nsec / 1000000.0;
-}
-
-static void stats_init(running_stats_t *stats) {
-    memset(stats, 0, sizeof(*stats));
-}
-
-static void stats_update(running_stats_t *stats, double value) {
-    if (stats->count == 0) {
-        stats->count = 1;
-        stats->mean = value;
-        stats->m2 = 0.0;
-        stats->min = value;
-        stats->max = value;
-        return;
-    }
-
-    stats->count++;
-    {
-        double delta = value - stats->mean;
-        stats->mean += delta / (double) stats->count;
-        {
-            double delta2 = value - stats->mean;
-            stats->m2 += delta * delta2;
-        }
-    }
-
-    if (value < stats->min) {
-        stats->min = value;
-    }
-    if (value > stats->max) {
-        stats->max = value;
-    }
-}
-
-static double stats_stddev(const running_stats_t *stats) {
-    if (stats->count < 2) {
-        return 0.0;
-    }
-    return sqrt(stats->m2 / (double) (stats->count - 1));
-}
 
 static int compare_double(const void *a, const void *b) {
     double da = *(const double *) a;
@@ -126,108 +40,15 @@ static double compute_median(double *values, size_t count) {
     return (values[(count / 2U) - 1U] + values[count / 2U]) * 0.5;
 }
 
-static void cycle_counter_close(cycle_counter_t *counter) {
-    if (counter->perf_fd >= 0) {
-        close(counter->perf_fd);
-    }
-    counter->perf_fd = -1;
-    counter->source = CYCLE_SOURCE_NONE;
-}
-
-static int cycle_counter_open(cycle_counter_t *counter, int cycles_enabled) {
-    struct perf_event_attr pe;
-
-    counter->source = CYCLE_SOURCE_NONE;
-    counter->perf_fd = -1;
-
-    if (!cycles_enabled) {
-        return 0;
-    }
-
-    memset(&pe, 0, sizeof(pe));
-    pe.type = PERF_TYPE_HARDWARE;
-    pe.size = sizeof(pe);
-    pe.config = PERF_COUNT_HW_CPU_CYCLES;
-    pe.disabled = 1;
-    pe.exclude_kernel = 0;
-    pe.exclude_hv = 0;
-
-    counter->perf_fd = (int) syscall(__NR_perf_event_open, &pe, 0, -1, -1, 0);
-    if (counter->perf_fd >= 0) {
-        counter->source = CYCLE_SOURCE_PERF;
-        return 0;
-    }
-
-#if defined(__x86_64__)
-    counter->source = CYCLE_SOURCE_TSC;
-    return 0;
-#elif defined(__aarch64__)
-    counter->source = CYCLE_SOURCE_ARMV8_CNTVCT;
-    return 0;
-#else
-    return -1;
-#endif
-}
-
-static unsigned long long cycle_counter_begin(cycle_counter_t *counter) {
-    if (counter->source == CYCLE_SOURCE_PERF) {
-        ioctl(counter->perf_fd, PERF_EVENT_IOC_RESET, 0);
-        ioctl(counter->perf_fd, PERF_EVENT_IOC_ENABLE, 0);
-        return 0;
-    }
-
-#if defined(__x86_64__)
-    if (counter->source == CYCLE_SOURCE_TSC) {
-        return read_tsc();
-    }
-#endif
-
-#if defined(__aarch64__)
-    if (counter->source == CYCLE_SOURCE_ARMV8_CNTVCT) {
-        return read_armv8_cntvct();
-    }
-#endif
-
-    return 0;
-}
-
-static unsigned long long cycle_counter_end(cycle_counter_t *counter, unsigned long long start_cycles) {
-    unsigned long long cycles = 0;
-
-    if (counter->source == CYCLE_SOURCE_PERF) {
-        ioctl(counter->perf_fd, PERF_EVENT_IOC_DISABLE, 0);
-        if (read(counter->perf_fd, &cycles, sizeof(cycles)) != (ssize_t) sizeof(cycles)) {
-            return 0;
-        }
-        return cycles;
-    }
-
-#if defined(__x86_64__)
-    if (counter->source == CYCLE_SOURCE_TSC) {
-        unsigned long long end_cycles = read_tsc();
-        return end_cycles - start_cycles;
-    }
-#endif
-
-#if defined(__aarch64__)
-    if (counter->source == CYCLE_SOURCE_ARMV8_CNTVCT) {
-        unsigned long long end_cycles = read_armv8_cntvct();
-        return end_cycles - start_cycles;
-    }
-#endif
-
-    return 0;
-}
-
-int ngcc_fill_random(unsigned char *buf, size_t len) {
+static int fill_random_urandom(unsigned char *buf, size_t len) {
     size_t offset = 0;
-
-    if (buf == NULL) {
+    int fd = open("/dev/urandom", O_RDONLY);
+    if (fd < 0) {
         return -1;
     }
 
     while (offset < len) {
-        ssize_t got = getrandom(buf + offset, len - offset, 0);
+        ssize_t got = read(fd, buf + offset, len - offset);
         if (got > 0) {
             offset += (size_t) got;
             continue;
@@ -235,21 +56,28 @@ int ngcc_fill_random(unsigned char *buf, size_t len) {
         if (got < 0 && errno == EINTR) {
             continue;
         }
-        break;
+        close(fd);
+        return -1;
     }
 
-    if (offset == len) {
-        return 0;
+    close(fd);
+    return 0;
+}
+
+int ngcc_fill_random(unsigned char *buf, size_t len) {
+    if (buf == NULL) {
+        return -1;
     }
 
+#if defined(__APPLE__)
+    /* arc4random_buf never fails */
+    arc4random_buf(buf, len);
+    return 0;
+#elif defined(__linux__)
     {
-        int fd = open("/dev/urandom", O_RDONLY);
-        if (fd < 0) {
-            return -1;
-        }
-
+        size_t offset = 0;
         while (offset < len) {
-            ssize_t got = read(fd, buf + offset, len - offset);
+            ssize_t got = getrandom(buf + offset, len - offset, 0);
             if (got > 0) {
                 offset += (size_t) got;
                 continue;
@@ -257,14 +85,16 @@ int ngcc_fill_random(unsigned char *buf, size_t len) {
             if (got < 0 && errno == EINTR) {
                 continue;
             }
-            close(fd);
-            return -1;
+            break;
         }
-
-        close(fd);
+        if (offset == len) {
+            return 0;
+        }
     }
+    /* fall through to /dev/urandom */
+#endif
 
-    return 0;
+    return fill_random_urandom(buf, len);
 }
 
 int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,

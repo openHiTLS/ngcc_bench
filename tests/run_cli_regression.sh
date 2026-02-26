@@ -131,4 +131,28 @@ grep -q '"stability_thresholds"' "$JSON_FILE"
 grep -q '"throughput_mean_bytes":' "$JSON_FILE"
 python3 "$ROOT_DIR/tests/validate_json_report.py" "$JSON_FILE" "$ROOT_DIR/docs/json_schema_v3.json"
 
+# ── Partial-load: hash-only .so ────────────────────────────────────
+HASH_ONLY_SO="$TMP_DIR/libmock_hash_only.so"
+cc -shared -fPIC "$ROOT_DIR/tests/mock/mock_hash_only.c" -o "$HASH_ONLY_SO"
+
+OUT5="$TMP_DIR/hash_only.log"
+"$BIN" \
+  --lib "$HASH_ONLY_SO" \
+  --test hash \
+  --mode correctness \
+  --digest-len-bits 8 > "$OUT5" 2>&1
+
+grep -q "\[hash\]\[correctness\] PASS" "$OUT5"
+
+# Verify that running a non-hash test against hash-only .so fails
+OUT6="$TMP_DIR/hash_only_sig.log"
+if "$BIN" \
+  --lib "$HASH_ONLY_SO" \
+  --test sig \
+  --mode correctness > "$OUT6" 2>&1; then
+  echo "expected sig test on hash-only .so to fail"
+  exit 1
+fi
+grep -q "missing symbol" "$OUT6"
+
 echo "cli regression passed"

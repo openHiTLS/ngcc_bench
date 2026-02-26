@@ -263,6 +263,10 @@ static int append_vector(ngcc_kat_file_t *kat, const kat_builder_t *builder, siz
         return -1;
     }
 
+    /* Commit the vector to the array now so that ngcc_kat_free() will clean up
+     * the partially-filled fields if a subsequent allocation fails. */
+    kat->count++;
+
     for (i = 0; i < vec->field_count; ++i) {
         vec->fields[i].name = dup_string(builder->fields[i].name);
         if (vec->fields[i].name == NULL) {
@@ -279,7 +283,6 @@ static int append_vector(ngcc_kat_file_t *kat, const kat_builder_t *builder, siz
         vec->fields[i].len = builder->fields[i].len;
     }
 
-    kat->count++;
     return 0;
 }
 
