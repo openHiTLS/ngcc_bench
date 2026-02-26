@@ -1,6 +1,6 @@
 # ngcc_bench
 
-基于 Linux/C 的 NGCC 算法测试基准工具。  
+基于 C11 的跨平台 NGCC 算法测试基准工具（Linux / macOS）。  
 程序通过 `dlopen/dlsym` 动态加载被测 `.so`，对统一 API 进行四类测试：
 
 - `correctness`
@@ -18,14 +18,14 @@
 ## 1. 当前代码状态
 
 - 主可执行文件：`ngcc_bench`（来源：`ngcc_bench/src/*.c`）
+- 单元测试：`ngcc_unit_tests`（来源：`tests/test_unit.c`）
 - 备用测试框架目标：`ngcc_test_framework`（仅当 `tests/src` 存在源码时构建）
-- `tests/` 目录当前只有占位文件，默认不会生成 `ngcc_test_framework` 可执行文件
 
 ## 2. 构建
 
 要求：
 
-- Linux
+- Linux 或 macOS
 - CMake >= 3.16
 - GCC/Clang（支持 C11）
 - `libdl`、`libm`
@@ -51,6 +51,12 @@ cmake -S . -B build -DIMPL_TYPE=all
 ```
 
 ## 3. 快速开始
+
+查看版本：
+
+```bash
+./build/ngcc_bench --version
+```
 
 查看帮助：
 
@@ -98,6 +104,11 @@ cmake -S . -B build -DIMPL_TYPE=all
 - `--test hash|sig|kem|kex|all`
 - `--mode correctness|performance|memory|stability|all`
 
+信息参数：
+
+- `--help`：显示帮助信息
+- `--version`：显示版本号
+
 可选参数：
 
 - `--iterations N`（默认 `1000`）
@@ -142,7 +153,7 @@ cycle 统计优先级为：`perf_event_open` -> `x86_64 rdtsc` -> `ARMv8 cntvct_
 
 ## 6. 重要限制
 
-- 加载器会一次性解析全部 API 符号。即使你只测 `hash`，`.so` 也必须实现 `hash + sig + kem + kex` 全部符号，否则加载失败。
+- 加载器按 `--test` 选项按需加载对应符号组。例如 `--test hash` 仅加载 Hash 符号，`.so` 无需导出其余符号。
 - `memory` 模式统计的是进程级 RSS（baseline/peak），不是单算法隔离内存。
 - `stability` 会在“达到持续时长”或“达到最大 case 数（默认 3000）”任一条件时停止；收到 `SIGINT/SIGTERM` 会优雅中断。
 - `stability` 按 `stability-sample-ms` 聚合多次 correctness 后再统计一次样本，可降低超快算法的计时抖动误判。
@@ -173,13 +184,16 @@ KAT 常用字段（十六进制）：
 - 稳定性专项/CI：`docs/stability_ci.md`
 - 设计一致性对照：`docs/design_alignment.md`
 
-## 8. 回归测试
+## 8. 测试
 
 ```bash
 ctest --test-dir build --output-on-failure
 ```
 
-当前包含 `ngcc_cli_regression`：自动构建 mock 动态库并校验 CLI/KAT/阈值/JSON 关键路径。
+当前包含：
+
+- `ngcc_cli_regression`：自动构建 mock 动态库并校验 CLI/KAT/阈值/JSON/按需加载关键路径。
+- `ngcc_unit_tests`：16 个 C 级单元测试，覆盖统计计算、CLI 参数解析、时间差计算等核心纯函数。
 
 ## 9. 稳定性专项
 

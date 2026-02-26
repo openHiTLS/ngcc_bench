@@ -31,10 +31,17 @@
   [--warning-memory-growth-percent P] \
   [--warning-error-rate-percent P] \
   [--json-out PATH] \
-  [--kat FILE]
+  [--kat FILE] \
+  [--help] [--version]
 ```
 
 ## 参数说明
+
+`--version`
+- 显示版本号并退出。
+
+`--help`
+- 显示帮助信息并退出。
 
 `--lib`
 - 必选。

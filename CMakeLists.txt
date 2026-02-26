@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(ngcc_bench C)
+project(ngcc_bench VERSION 1.0.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -121,8 +121,13 @@ endif()
 # ═══════════════════════════════════════════════════════════════════
 set(NGCC_BENCH_SOURCES
     ngcc_bench/src/main.c
+    ngcc_bench/src/cli_parser.c
+    ngcc_bench/src/interactive.c
+    ngcc_bench/src/json_report.c
     ngcc_bench/src/loader.c
     ngcc_bench/src/bench_core.c
+    ngcc_bench/src/cycle_counter.c
+    ngcc_bench/src/stats_util.c
     ngcc_bench/src/mem_stat.c
     ngcc_bench/src/bench_hash.c
     ngcc_bench/src/bench_sig.c
@@ -137,11 +142,40 @@ target_include_directories(ngcc_bench PRIVATE
     ${CMAKE_SOURCE_DIR}/ngcc_bench/include
 )
 target_link_libraries(ngcc_bench dl m)
+target_compile_options(ngcc_bench PRIVATE -Wall -Wextra -Wpedantic)
+target_compile_definitions(ngcc_bench PRIVATE NGCC_VERSION="${PROJECT_VERSION}")
 
 enable_testing()
 add_test(
     NAME ngcc_cli_regression
     COMMAND bash ${CMAKE_SOURCE_DIR}/tests/run_cli_regression.sh $<TARGET_FILE:ngcc_bench>
 )
+
+# ── Unit tests ────────────────────────────────────────────────────
+# Link against all library sources (minus main.c) to resolve transitive deps.
+add_executable(ngcc_unit_tests
+    tests/test_unit.c
+    ngcc_bench/src/cli_parser.c
+    ngcc_bench/src/interactive.c
+    ngcc_bench/src/json_report.c
+    ngcc_bench/src/loader.c
+    ngcc_bench/src/bench_core.c
+    ngcc_bench/src/cycle_counter.c
+    ngcc_bench/src/stats_util.c
+    ngcc_bench/src/mem_stat.c
+    ngcc_bench/src/bench_hash.c
+    ngcc_bench/src/bench_sig.c
+    ngcc_bench/src/bench_kem.c
+    ngcc_bench/src/bench_kex.c
+    ngcc_bench/src/stability.c
+    ngcc_bench/src/kat_parser.c
+)
+target_include_directories(ngcc_unit_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/ngcc_bench/include
+)
+target_link_libraries(ngcc_unit_tests dl m)
+target_compile_options(ngcc_unit_tests PRIVATE -Wall -Wextra -Wpedantic)
+
+add_test(NAME ngcc_unit_tests COMMAND ngcc_unit_tests)
 
 message(STATUS "  [主程序]   ngcc_bench <- ngcc_bench/src/")
