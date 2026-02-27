@@ -156,34 +156,39 @@ static int run_performance_for_test(const ngcc_api_t *api,
         return rc;
     }
 
-    printf("[%s][performance] ops=%llu warmup=%llu elapsed_ms=%.3f total_ms=%.3f ops/s=%.3f bytes/op=%.3f bytes/s=%.3f%s\n",
+    /* basic config */
+    printf("[%s][performance] ops=%llu warmup=%llu elapsed_ms=%.3f bytes/op=%.3f\n",
            name,
            result.iterations,
            result.warmup_iterations,
            result.elapsed_ms,
-           result.total_time_ms,
-           result.ops_per_sec,
-           result.bytes_per_op,
-           result.bytes_per_sec,
-           result.cycles_available ? "" : " cycles=unavailable");
-    printf("[%s][performance][time] min_ms=%.6f mean_ms=%.6f median_ms=%.6f max_ms=%.6f stddev_ms=%.6f cv=%.3f%%\n",
-           name,
-           result.time_ms_min,
-           result.time_ms_mean,
-           result.time_ms_median,
-           result.time_ms_max,
-           result.time_ms_stddev,
-           result.time_ms_cv_percent);
+           result.bytes_per_op);
+    /* cpu cycles */
     if (result.cycles_available) {
-        printf("[%s][performance][cycles] min=%.3f mean=%.3f median=%.3f max=%.3f stddev=%.3f cv=%.3f%%\n",
+        printf("[%s][performance][cycles] min=%.3f mean=%.3f median=%.3f max=%.3f stddev=%.3f cv=%.3f%% per_byte=%.3f\n",
                name,
                result.cycles_min,
                result.cycles_per_op,
                result.cycles_median,
                result.cycles_max,
                result.cycles_stddev,
-               result.cycles_cv_percent);
+               result.cycles_cv_percent,
+               result.cycles_per_byte);
+    } else {
+        printf("[%s][performance][cycles] unavailable\n", name);
     }
+    /* throughput */
+    printf("[%s][performance][throughput] ops/s=%.3f bytes/s=%.3f\n",
+           name,
+           result.ops_per_sec,
+           result.bytes_per_sec);
+    /* time */
+    printf("[%s][performance][time] mean_ms=%.6f median_ms=%.6f stddev_ms=%.6f cv=%.3f%%\n",
+           name,
+           result.time_ms_mean,
+           result.time_ms_median,
+           result.time_ms_stddev,
+           result.time_ms_cv_percent);
 
     if (report != NULL) {
         report->performance = result;

@@ -7,7 +7,7 @@ typedef enum {
     CYCLE_SOURCE_NONE = 0,
     CYCLE_SOURCE_PERF,
     CYCLE_SOURCE_TSC,
-    CYCLE_SOURCE_ARMV8_CNTVCT
+    CYCLE_SOURCE_ARMV8_PMU
 } cycle_source_t;
 
 typedef struct {

@@ -23,11 +23,29 @@ static unsigned long long read_tsc(void) {
 #endif
 
 #if defined(__aarch64__)
-static unsigned long long read_armv8_cntvct(void) {
-    unsigned long long counter;
-    __asm__ volatile ("isb" ::: "memory");
-    __asm__ volatile ("mrs %0, cntvct_el0" : "=r"(counter));
-    return counter;
+/**
+ * ARMv8 PMU cycle counter (PMCCNTR_EL0)
+ * Reads true CPU cycles. Requires kernel module for user-space access.
+ * See: https://github.com/mupq/pqax#enable-access-to-performance-counters
+ */
+static int g_pmu_initialized = 0;
+
+static void armv8_init_pmu(void) {
+    unsigned long long val = 1;
+    __asm__ volatile("MSR PMCR_EL0, %0" :: "r"(val));
+    val = 0x80000000ULL;
+    __asm__ volatile("MSR PMCNTENSET_EL0, %0" :: "r"(val));
+}
+
+static unsigned long long armv8_read_pmccntr(void) {
+    unsigned long long val;
+    __asm__ volatile("mrs %0, pmccntr_el0" : "=r"(val));
+    return val;
+}
+
+static void armv8_memory_barrier(void) {
+    __asm__ volatile("dsb sy" ::: "memory");
+    __asm__ volatile("isb" ::: "memory");
 }
 #endif
 
@@ -70,7 +88,11 @@ int cycle_counter_open(cycle_counter_t *counter, int cycles_enabled) {
     counter->source = CYCLE_SOURCE_TSC;
     return 0;
 #elif defined(__aarch64__)
-    counter->source = CYCLE_SOURCE_ARMV8_CNTVCT;
+    if (!g_pmu_initialized) {
+        armv8_init_pmu();
+        g_pmu_initialized = 1;
+    }
+    counter->source = CYCLE_SOURCE_ARMV8_PMU;
     return 0;
 #else
     return -1;
@@ -93,8 +115,9 @@ unsigned long long cycle_counter_begin(cycle_counter_t *counter) {
 #endif
 
 #if defined(__aarch64__)
-    if (counter->source == CYCLE_SOURCE_ARMV8_CNTVCT) {
-        return read_armv8_cntvct();
+    if (counter->source == CYCLE_SOURCE_ARMV8_PMU) {
+        armv8_memory_barrier();
+        return armv8_read_pmccntr();
     }
 #endif
 
@@ -122,8 +145,9 @@ unsigned long long cycle_counter_end(cycle_counter_t *counter, unsigned long lon
 #endif
 
 #if defined(__aarch64__)
-    if (counter->source == CYCLE_SOURCE_ARMV8_CNTVCT) {
-        unsigned long long end_cycles = read_armv8_cntvct();
+    if (counter->source == CYCLE_SOURCE_ARMV8_PMU) {
+        unsigned long long end_cycles = armv8_read_pmccntr();
+        armv8_memory_barrier();
         return end_cycles - start_cycles;
     }
 #endif

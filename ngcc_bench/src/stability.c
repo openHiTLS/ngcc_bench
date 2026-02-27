@@ -410,6 +410,7 @@ int ngcc_run_stability(const ngcc_api_t *api,
         append_reason(out_result->failure_reasons, sizeof(out_result->failure_reasons), "cycle counter unavailable; ");
     }
 
+
     cycle_counter_close(&counter);
     restore_signal_handlers(&old_int, &old_term);
     return out_result->failed ? -1 : 0;
