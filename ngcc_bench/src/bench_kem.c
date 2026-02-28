@@ -3,9 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bench_core.h"
 #include "kat_parser.h"
-
-#define NGCC_MAX_BUFFER_LEN (64ULL * 1024ULL * 1024ULL)
 
 typedef struct {
     const ngcc_api_t *api;
@@ -20,9 +19,7 @@ typedef struct {
     unsigned long long ss_cap;
 } kem_perf_ctx_t;
 
-static int is_valid_len(unsigned long long n) {
-    return n > 0 && n <= NGCC_MAX_BUFFER_LEN;
-}
+
 
 static int kem_run_once(const ngcc_api_t *api,
                         unsigned char *pk,
@@ -102,7 +99,7 @@ int ngcc_kem_correctness(const ngcc_api_t *api) {
     sk_cap = api->kem_get_sk_len_bytes();
     ct_cap = api->kem_get_ct_len_bytes();
     ss_cap = api->kem_get_ss_len_bytes();
-    if (!is_valid_len(pk_cap) || !is_valid_len(sk_cap) || !is_valid_len(ct_cap) || !is_valid_len(ss_cap)) {
+    if (!ngcc_is_valid_len(pk_cap) || !ngcc_is_valid_len(sk_cap) || !ngcc_is_valid_len(ct_cap) || !ngcc_is_valid_len(ss_cap)) {
         return -1;
     }
 
@@ -158,7 +155,7 @@ int ngcc_kem_correctness_kat_file(const ngcc_api_t *api,
     sk_cap = api->kem_get_sk_len_bytes();
     ct_cap = api->kem_get_ct_len_bytes();
     ss_cap = api->kem_get_ss_len_bytes();
-    if (!is_valid_len(sk_cap) || !is_valid_len(ct_cap) || !is_valid_len(ss_cap)) {
+    if (!ngcc_is_valid_len(sk_cap) || !ngcc_is_valid_len(ct_cap) || !ngcc_is_valid_len(ss_cap)) {
         rc = -1;
         goto out;
     }
@@ -233,6 +230,7 @@ int ngcc_kem_performance(const ngcc_api_t *api,
                          ngcc_perf_result_t *out_result) {
     kem_perf_ctx_t ctx;
     ngcc_perf_config_t local_cfg;
+    int rc = -1;
 
     if (api == NULL || cfg == NULL || out_result == NULL) {
         return -1;
@@ -245,8 +243,8 @@ int ngcc_kem_performance(const ngcc_api_t *api,
     ctx.ct_cap = api->kem_get_ct_len_bytes();
     ctx.ss_cap = api->kem_get_ss_len_bytes();
 
-    if (!is_valid_len(ctx.pk_cap) || !is_valid_len(ctx.sk_cap) || !is_valid_len(ctx.ct_cap) ||
-        !is_valid_len(ctx.ss_cap)) {
+    if (!ngcc_is_valid_len(ctx.pk_cap) || !ngcc_is_valid_len(ctx.sk_cap) || !ngcc_is_valid_len(ctx.ct_cap) ||
+        !ngcc_is_valid_len(ctx.ss_cap)) {
         return -1;
     }
 
@@ -256,29 +254,22 @@ int ngcc_kem_performance(const ngcc_api_t *api,
     ctx.ss_a = (unsigned char *) malloc((size_t) ctx.ss_cap);
     ctx.ss_b = (unsigned char *) malloc((size_t) ctx.ss_cap);
     if (ctx.pk == NULL || ctx.sk == NULL || ctx.ct == NULL || ctx.ss_a == NULL || ctx.ss_b == NULL) {
-        free(ctx.pk);
-        free(ctx.sk);
-        free(ctx.ct);
-        free(ctx.ss_a);
-        free(ctx.ss_b);
-        return -1;
+        goto cleanup;
     }
 
     local_cfg = *cfg;
     local_cfg.bytes_per_op = ctx.ct_cap;
     if (ngcc_run_performance_op(&local_cfg, kem_perf_op, &ctx, out_result) != 0) {
-        free(ctx.pk);
-        free(ctx.sk);
-        free(ctx.ct);
-        free(ctx.ss_a);
-        free(ctx.ss_b);
-        return -1;
+        goto cleanup;
     }
 
+    rc = 0;
+
+cleanup:
     free(ctx.pk);
     free(ctx.sk);
     free(ctx.ct);
     free(ctx.ss_a);
     free(ctx.ss_b);
-    return 0;
+    return rc;
 }

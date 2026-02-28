@@ -3,9 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bench_core.h"
 #include "kat_parser.h"
-
-#define NGCC_MAX_BUFFER_LEN (64ULL * 1024ULL * 1024ULL)
 
 typedef struct {
     const ngcc_api_t *api;
@@ -28,9 +27,7 @@ typedef struct {
     unsigned long long ss_cap;
 } kex_perf_ctx_t;
 
-static int is_valid_len(unsigned long long n) {
-    return n > 0 && n <= NGCC_MAX_BUFFER_LEN;
-}
+
 
 static int kex_run_once(const ngcc_api_t *api,
                         unsigned char *pka,
@@ -171,8 +168,8 @@ int ngcc_kex_correctness(const ngcc_api_t *api) {
     msg_cap = api->kex_get_total_msg_len_bytes();
     ss_cap = api->kex_get_ss_len_bytes();
 
-    if (!is_valid_len(pk_cap) || !is_valid_len(sk_cap) || !is_valid_len(sta_cap) || !is_valid_len(stb_cap) ||
-        !is_valid_len(msg_cap) || !is_valid_len(ss_cap)) {
+    if (!ngcc_is_valid_len(pk_cap) || !ngcc_is_valid_len(sk_cap) || !ngcc_is_valid_len(sta_cap) || !ngcc_is_valid_len(stb_cap) ||
+        !ngcc_is_valid_len(msg_cap) || !ngcc_is_valid_len(ss_cap)) {
         return -1;
     }
 
@@ -265,8 +262,8 @@ int ngcc_kex_correctness_kat_file(const ngcc_api_t *api,
     stb_cap = api->kex_get_stb_len_bytes();
     msg_cap = api->kex_get_total_msg_len_bytes();
     ss_cap = api->kex_get_ss_len_bytes();
-    if (!is_valid_len(pk_cap) || !is_valid_len(sk_cap) || !is_valid_len(sta_cap) || !is_valid_len(stb_cap) ||
-        !is_valid_len(msg_cap) || !is_valid_len(ss_cap)) {
+    if (!ngcc_is_valid_len(pk_cap) || !ngcc_is_valid_len(sk_cap) || !ngcc_is_valid_len(sta_cap) || !ngcc_is_valid_len(stb_cap) ||
+        !ngcc_is_valid_len(msg_cap) || !ngcc_is_valid_len(ss_cap)) {
         rc = -1;
         goto out;
     }
@@ -396,6 +393,7 @@ int ngcc_kex_performance(const ngcc_api_t *api,
                          ngcc_perf_result_t *out_result) {
     kex_perf_ctx_t ctx;
     ngcc_perf_config_t local_cfg;
+    int rc = -1;
 
     if (api == NULL || cfg == NULL || out_result == NULL) {
         return -1;
@@ -410,8 +408,8 @@ int ngcc_kex_performance(const ngcc_api_t *api,
     ctx.msg_cap = api->kex_get_total_msg_len_bytes();
     ctx.ss_cap = api->kex_get_ss_len_bytes();
 
-    if (!is_valid_len(ctx.pk_cap) || !is_valid_len(ctx.sk_cap) || !is_valid_len(ctx.sta_cap) ||
-        !is_valid_len(ctx.stb_cap) || !is_valid_len(ctx.msg_cap) || !is_valid_len(ctx.ss_cap)) {
+    if (!ngcc_is_valid_len(ctx.pk_cap) || !ngcc_is_valid_len(ctx.sk_cap) || !ngcc_is_valid_len(ctx.sta_cap) ||
+        !ngcc_is_valid_len(ctx.stb_cap) || !ngcc_is_valid_len(ctx.msg_cap) || !ngcc_is_valid_len(ctx.ss_cap)) {
         return -1;
     }
 
@@ -430,37 +428,18 @@ int ngcc_kex_performance(const ngcc_api_t *api,
     if (ctx.pka == NULL || ctx.ska == NULL || ctx.sta == NULL || ctx.pkb == NULL || ctx.skb == NULL ||
         ctx.stb == NULL || ctx.m1 == NULL || ctx.m2 == NULL || ctx.m3 == NULL || ctx.ssa == NULL ||
         ctx.ssb == NULL) {
-        free(ctx.pka);
-        free(ctx.ska);
-        free(ctx.sta);
-        free(ctx.pkb);
-        free(ctx.skb);
-        free(ctx.stb);
-        free(ctx.m1);
-        free(ctx.m2);
-        free(ctx.m3);
-        free(ctx.ssa);
-        free(ctx.ssb);
-        return -1;
+        goto cleanup;
     }
 
     local_cfg = *cfg;
     local_cfg.bytes_per_op = ctx.msg_cap;
     if (ngcc_run_performance_op(&local_cfg, kex_perf_op, &ctx, out_result) != 0) {
-        free(ctx.pka);
-        free(ctx.ska);
-        free(ctx.sta);
-        free(ctx.pkb);
-        free(ctx.skb);
-        free(ctx.stb);
-        free(ctx.m1);
-        free(ctx.m2);
-        free(ctx.m3);
-        free(ctx.ssa);
-        free(ctx.ssb);
-        return -1;
+        goto cleanup;
     }
 
+    rc = 0;
+
+cleanup:
     free(ctx.pka);
     free(ctx.ska);
     free(ctx.sta);
@@ -472,5 +451,5 @@ int ngcc_kex_performance(const ngcc_api_t *api,
     free(ctx.m3);
     free(ctx.ssa);
     free(ctx.ssb);
-    return 0;
+    return rc;
 }

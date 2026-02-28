@@ -3,9 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bench_core.h"
 #include "kat_parser.h"
-
-#define NGCC_MAX_BUFFER_LEN (64ULL * 1024ULL * 1024ULL)
 
 typedef struct {
     const ngcc_api_t *api;
@@ -19,9 +18,7 @@ typedef struct {
     unsigned long long msg_len;
 } sig_perf_ctx_t;
 
-static int is_valid_len(unsigned long long n) {
-    return n > 0 && n <= NGCC_MAX_BUFFER_LEN;
-}
+
 
 static int sig_run_once(const ngcc_api_t *api,
                         unsigned char *pk,
@@ -90,7 +87,7 @@ int ngcc_sig_correctness(const ngcc_api_t *api, size_t msg_len) {
     pk_cap = api->sig_get_pk_len_bytes();
     sk_cap = api->sig_get_sk_len_bytes();
     sn_cap = api->sig_get_sn_len_bytes();
-    if (!is_valid_len(pk_cap) || !is_valid_len(sk_cap) || !is_valid_len(sn_cap)) {
+    if (!ngcc_is_valid_len(pk_cap) || !ngcc_is_valid_len(sk_cap) || !ngcc_is_valid_len(sn_cap)) {
         return -1;
     }
 
@@ -145,7 +142,7 @@ int ngcc_sig_correctness_kat_file(const ngcc_api_t *api,
 
     pk_cap = api->sig_get_pk_len_bytes();
     sn_cap = api->sig_get_sn_len_bytes();
-    if (!is_valid_len(pk_cap) || !is_valid_len(sn_cap)) {
+    if (!ngcc_is_valid_len(pk_cap) || !ngcc_is_valid_len(sn_cap)) {
         rc = -1;
         goto out;
     }
@@ -204,6 +201,7 @@ int ngcc_sig_performance(const ngcc_api_t *api,
                          ngcc_perf_result_t *out_result) {
     sig_perf_ctx_t ctx;
     ngcc_perf_config_t local_cfg;
+    int rc = -1;
 
     if (api == NULL || cfg == NULL || out_result == NULL || msg_len == 0 || msg_len > NGCC_MAX_BUFFER_LEN) {
         return -1;
@@ -216,7 +214,7 @@ int ngcc_sig_performance(const ngcc_api_t *api,
     ctx.sn_cap = api->sig_get_sn_len_bytes();
     ctx.msg_len = (unsigned long long) msg_len;
 
-    if (!is_valid_len(ctx.pk_cap) || !is_valid_len(ctx.sk_cap) || !is_valid_len(ctx.sn_cap)) {
+    if (!ngcc_is_valid_len(ctx.pk_cap) || !ngcc_is_valid_len(ctx.sk_cap) || !ngcc_is_valid_len(ctx.sn_cap)) {
         return -1;
     }
 
@@ -225,26 +223,21 @@ int ngcc_sig_performance(const ngcc_api_t *api,
     ctx.sn = (unsigned char *) malloc((size_t) ctx.sn_cap);
     ctx.msg = (unsigned char *) malloc(msg_len);
     if (ctx.pk == NULL || ctx.sk == NULL || ctx.sn == NULL || ctx.msg == NULL) {
-        free(ctx.pk);
-        free(ctx.sk);
-        free(ctx.sn);
-        free(ctx.msg);
-        return -1;
+        goto cleanup;
     }
 
     local_cfg = *cfg;
     local_cfg.bytes_per_op = (unsigned long long) msg_len;
     if (ngcc_run_performance_op(&local_cfg, sig_perf_op, &ctx, out_result) != 0) {
-        free(ctx.pk);
-        free(ctx.sk);
-        free(ctx.sn);
-        free(ctx.msg);
-        return -1;
+        goto cleanup;
     }
 
+    rc = 0;
+
+cleanup:
     free(ctx.pk);
     free(ctx.sk);
     free(ctx.sn);
     free(ctx.msg);
-    return 0;
+    return rc;
 }

@@ -346,9 +346,9 @@ int main(int argc, char **argv) {
     run_report_t report;
     size_t i;
     int failed = 0;
-    char interactive_lib[1024];
-    char interactive_kat[1024];
-    char interactive_json[1024];
+    char interactive_lib[NGCC_PATH_BUF_SIZE];
+    char interactive_kat[NGCC_PATH_BUF_SIZE];
+    char interactive_json[NGCC_PATH_BUF_SIZE];
 
     init_default_options(&opts);
     memset(&report, 0, sizeof(report));
@@ -392,7 +392,7 @@ int main(int argc, char **argv) {
     }
 
     if (ngcc_load_library(opts.lib_path, opts.test_mask, &lib) != 0) {
-        fprintf(stderr, "error: failed to load library: %s\n", opts.lib_path);
+        fprintf(stderr, "[ERROR][main] failed to load library: %s\n", opts.lib_path);
         return 1;
     }
 

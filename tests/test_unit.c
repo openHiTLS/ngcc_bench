@@ -9,8 +9,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bench_core.h"
 #include "cli_parser.h"
 #include "cli_types.h"
+#include "stability.h"
 #include "stats_util.h"
 
 /* ── Minimal test harness ─────────────────────────────────────── */
@@ -244,6 +246,67 @@ static void test_parse_double_value_invalid(void) {
     TEST_ASSERT_INT_EQ(parse_double_value("abc", &val), -1);
 }
 
+/* ── ngcc_fill_random tests ───────────────────────────────────── */
+
+static void test_fill_random_nonzero(void) {
+    unsigned char buf[64];
+    int all_zero = 1;
+    size_t i;
+
+    memset(buf, 0, sizeof(buf));
+    TEST_ASSERT_INT_EQ(ngcc_fill_random(buf, sizeof(buf)), 0);
+
+    for (i = 0; i < sizeof(buf); ++i) {
+        if (buf[i] != 0) {
+            all_zero = 0;
+            break;
+        }
+    }
+    TEST_ASSERT(!all_zero);
+}
+
+static void test_fill_random_unique(void) {
+    unsigned char buf_a[32];
+    unsigned char buf_b[32];
+
+    TEST_ASSERT_INT_EQ(ngcc_fill_random(buf_a, sizeof(buf_a)), 0);
+    TEST_ASSERT_INT_EQ(ngcc_fill_random(buf_b, sizeof(buf_b)), 0);
+    TEST_ASSERT(memcmp(buf_a, buf_b, sizeof(buf_a)) != 0);
+}
+
+static void test_fill_random_null(void) {
+    TEST_ASSERT_INT_EQ(ngcc_fill_random(NULL, 16), -1);
+}
+
+/* ── ngcc_is_valid_len tests ──────────────────────────────────── */
+
+static void test_is_valid_len(void) {
+    TEST_ASSERT(!ngcc_is_valid_len(0));
+    TEST_ASSERT(ngcc_is_valid_len(1));
+    TEST_ASSERT(ngcc_is_valid_len(NGCC_MAX_BUFFER_LEN));
+    TEST_ASSERT(!ngcc_is_valid_len(NGCC_MAX_BUFFER_LEN + 1));
+}
+
+/* ── stability thresholds defaults tests ──────────────────────── */
+
+static void test_stability_thresholds_defaults(void) {
+    ngcc_stability_thresholds_t t;
+    memset(&t, 0, sizeof(t));
+    ngcc_stability_thresholds_set_defaults(&t);
+
+    TEST_ASSERT(t.stable_throughput_cv_percent > 0.0);
+    TEST_ASSERT(t.stable_cycles_cv_percent > 0.0);
+    TEST_ASSERT(t.stable_time_cv_percent > 0.0);
+    TEST_ASSERT(t.stable_memory_growth_percent > 0.0);
+    TEST_ASSERT(t.stable_error_rate_percent >= 0.0);
+    /* warning thresholds >= stable thresholds */
+    TEST_ASSERT(t.warning_throughput_cv_percent >= t.stable_throughput_cv_percent);
+    TEST_ASSERT(t.warning_cycles_cv_percent >= t.stable_cycles_cv_percent);
+    TEST_ASSERT(t.warning_time_cv_percent >= t.stable_time_cv_percent);
+    TEST_ASSERT(t.warning_memory_growth_percent >= t.stable_memory_growth_percent);
+    TEST_ASSERT(t.warning_error_rate_percent >= t.stable_error_rate_percent);
+}
+
 /* ── main ─────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -278,6 +341,17 @@ int main(void) {
     /* parse_double_value */
     RUN_TEST(test_parse_double_value_valid);
     RUN_TEST(test_parse_double_value_invalid);
+
+    /* ngcc_fill_random */
+    RUN_TEST(test_fill_random_nonzero);
+    RUN_TEST(test_fill_random_unique);
+    RUN_TEST(test_fill_random_null);
+
+    /* ngcc_is_valid_len */
+    RUN_TEST(test_is_valid_len);
+
+    /* stability thresholds defaults */
+    RUN_TEST(test_stability_thresholds_defaults);
 
     printf("\n%d/%d tests passed\n", g_tests_run - g_tests_failed, g_tests_run);
 

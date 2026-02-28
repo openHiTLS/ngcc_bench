@@ -119,8 +119,25 @@ endif()
 # ═══════════════════════════════════════════════════════════════════
 #  NGCC Benchmark 主程序 (ngcc_bench/)
 # ═══════════════════════════════════════════════════════════════════
-set(NGCC_BENCH_SOURCES
-    ngcc_bench/src/main.c
+
+# ── Sanitizer 选项 ─────────────────────────────────────────────────
+option(ENABLE_ASAN  "Enable AddressSanitizer"            OFF)
+option(ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer"   OFF)
+
+if(ENABLE_ASAN)
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address)
+    message(STATUS "  [sanitizer] AddressSanitizer enabled")
+endif()
+
+if(ENABLE_UBSAN)
+    add_compile_options(-fsanitize=undefined)
+    add_link_options(-fsanitize=undefined)
+    message(STATUS "  [sanitizer] UndefinedBehaviorSanitizer enabled")
+endif()
+
+# ── 共享库源文件（main.c 除外）──────────────────────────────────────
+set(NGCC_BENCH_LIB_SOURCES
     ngcc_bench/src/cli_parser.c
     ngcc_bench/src/interactive.c
     ngcc_bench/src/json_report.c
@@ -137,7 +154,7 @@ set(NGCC_BENCH_SOURCES
     ngcc_bench/src/kat_parser.c
 )
 
-add_executable(ngcc_bench ${NGCC_BENCH_SOURCES})
+add_executable(ngcc_bench ngcc_bench/src/main.c ${NGCC_BENCH_LIB_SOURCES})
 target_include_directories(ngcc_bench PRIVATE
     ${CMAKE_SOURCE_DIR}/ngcc_bench/include
 )
@@ -152,24 +169,7 @@ add_test(
 )
 
 # ── Unit tests ────────────────────────────────────────────────────
-# Link against all library sources (minus main.c) to resolve transitive deps.
-add_executable(ngcc_unit_tests
-    tests/test_unit.c
-    ngcc_bench/src/cli_parser.c
-    ngcc_bench/src/interactive.c
-    ngcc_bench/src/json_report.c
-    ngcc_bench/src/loader.c
-    ngcc_bench/src/bench_core.c
-    ngcc_bench/src/cycle_counter.c
-    ngcc_bench/src/stats_util.c
-    ngcc_bench/src/mem_stat.c
-    ngcc_bench/src/bench_hash.c
-    ngcc_bench/src/bench_sig.c
-    ngcc_bench/src/bench_kem.c
-    ngcc_bench/src/bench_kex.c
-    ngcc_bench/src/stability.c
-    ngcc_bench/src/kat_parser.c
-)
+add_executable(ngcc_unit_tests tests/test_unit.c ${NGCC_BENCH_LIB_SOURCES})
 target_include_directories(ngcc_unit_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/ngcc_bench/include
 )

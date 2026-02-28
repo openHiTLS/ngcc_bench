@@ -39,6 +39,10 @@ static double compute_median(double *values, size_t count) {
     return (values[(count / 2U) - 1U] + values[count / 2U]) * 0.5;
 }
 
+int ngcc_is_valid_len(unsigned long long n) {
+    return n > 0 && n <= NGCC_MAX_BUFFER_LEN;
+}
+
 int ngcc_fill_random(unsigned char *buf, size_t len) {
     size_t offset = 0;
 
@@ -105,6 +109,7 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
     size_t sample_capacity = 0;
     int keep_time_samples = 0;
     int keep_cycle_samples = 0;
+    int rc = -1;
 
     if (cfg == NULL || op == NULL || out_result == NULL || cfg->iterations == 0) {
         return -1;
@@ -127,7 +132,7 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
 
     if (cycle_counter_open(&counter, cfg->cycles_enabled) != 0) {
         if (!g_cycles_warning_printed) {
-            fprintf(stderr, "warning: cycle counter unavailable, falling back to time-only metrics\n");
+            fprintf(stderr, "[WARN][bench] cycle counter unavailable, falling back to time-only metrics\n");
             g_cycles_warning_printed = 1;
         }
         counter.source = CYCLE_SOURCE_NONE;
@@ -155,10 +160,7 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
     }
 
     if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_total_start) != 0) {
-        free(time_samples);
-        free(cycle_samples);
-        cycle_counter_close(&counter);
-        return -1;
+        goto cleanup;
     }
 
     for (i = 0; i < cfg->iterations; ++i) {
@@ -168,24 +170,15 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
 
         iter_cycle_start = cycle_counter_begin(&counter);
         if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_iter_start) != 0) {
-            free(time_samples);
-            free(cycle_samples);
-            cycle_counter_close(&counter);
-            return -1;
+            goto cleanup;
         }
 
         if (op(op_ctx) != 0) {
-            free(time_samples);
-            free(cycle_samples);
-            cycle_counter_close(&counter);
-            return -1;
+            goto cleanup;
         }
 
         if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_iter_end) != 0) {
-            free(time_samples);
-            free(cycle_samples);
-            cycle_counter_close(&counter);
-            return -1;
+            goto cleanup;
         }
         iter_cycles = cycle_counter_end(&counter, iter_cycle_start);
 
@@ -205,10 +198,7 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
     }
 
     if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_total_end) != 0) {
-        free(time_samples);
-        free(cycle_samples);
-        cycle_counter_close(&counter);
-        return -1;
+        goto cleanup;
     }
 
     out_result->elapsed_ms = timespec_ms_diff(&ts_total_start, &ts_total_end);
@@ -249,8 +239,11 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
         out_result->cycles_median = 0.0;
     }
 
+    rc = 0;
+
+cleanup:
     free(time_samples);
     free(cycle_samples);
     cycle_counter_close(&counter);
-    return 0;
+    return rc;
 }
