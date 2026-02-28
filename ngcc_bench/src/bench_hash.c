@@ -3,9 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "bench_core.h"
 #include "kat_parser.h"
-
-#define NGCC_MAX_MSG_LEN (16U * 1024U * 1024U)
 
 typedef struct {
     const ngcc_api_t *api;
@@ -50,7 +49,7 @@ int ngcc_hash_correctness(const ngcc_api_t *api, int digest_len_bits, size_t msg
     size_t digest_len;
     int rc = -1;
 
-    if (api == NULL || digest_len_bits <= 0 || msg_len == 0 || msg_len > NGCC_MAX_MSG_LEN) {
+    if (api == NULL || digest_len_bits <= 0 || msg_len == 0 || msg_len > NGCC_MAX_BUFFER_LEN) {
         return -1;
     }
 
@@ -182,7 +181,7 @@ int ngcc_hash_performance(const ngcc_api_t *api,
     ngcc_perf_config_t local_cfg;
 
     if (api == NULL || cfg == NULL || out_result == NULL || digest_len_bits <= 0 || msg_len == 0 ||
-        msg_len > NGCC_MAX_MSG_LEN) {
+        msg_len > NGCC_MAX_BUFFER_LEN) {
         return -1;
     }
 

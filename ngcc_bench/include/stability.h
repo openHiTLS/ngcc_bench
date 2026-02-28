@@ -6,6 +6,9 @@
 
 #include "ngcc_api.h"
 
+#define NGCC_STATUS_LEN  16
+#define NGCC_REASON_LEN 256
+
 typedef enum {
     NGCC_TEST_HASH,
     NGCC_TEST_SIG,
@@ -59,8 +62,8 @@ typedef struct {
     int memory_stable;
     int correctness_stable;
     int is_stable;
-    char status[16];
-    char failure_reasons[256];
+    char status[NGCC_STATUS_LEN];
+    char failure_reasons[NGCC_REASON_LEN];
 } ngcc_stability_result_t;
 
 typedef struct {

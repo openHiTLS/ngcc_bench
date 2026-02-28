@@ -11,7 +11,7 @@ static int load_symbol(void *handle, const char *name, void **fn_ptr) {
     dlerror();
     *fn_ptr = dlsym(handle, name);
     if (dlerror() != NULL || *fn_ptr == NULL) {
-        fprintf(stderr, "missing symbol: %s\n", name);
+        fprintf(stderr, "[ERROR][loader] missing symbol: %s\n", name);
         return -1;
     }
     return 0;
@@ -83,7 +83,7 @@ int ngcc_load_library(const char *lib_path, unsigned int test_mask,
 
     handle = dlopen(lib_path, RTLD_NOW);
     if (handle == NULL) {
-        fprintf(stderr, "dlopen failed: %s\n", dlerror());
+        fprintf(stderr, "[ERROR][loader] dlopen failed: %s\n", dlerror());
         return -1;
     }
 

@@ -1,8 +1,12 @@
 #include "mem_stat.h"
 
+#include <stdint.h>
+
+#ifdef __linux__
 #include <stdio.h>
 #include <sys/resource.h>
 #include <unistd.h>
+#endif
 
 #if defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 33))
 #include <malloc.h>
@@ -12,6 +16,7 @@
 #endif
 
 uint64_t ngcc_mem_current_rss_bytes(void) {
+#ifdef __linux__
     FILE *fp = fopen("/proc/self/statm", "r");
     unsigned long total_pages = 0;
     unsigned long rss_pages = 0;
@@ -34,9 +39,13 @@ uint64_t ngcc_mem_current_rss_bytes(void) {
     }
 
     return (uint64_t) rss_pages * (uint64_t) page_size;
+#else
+    return 0;
+#endif
 }
 
 uint64_t ngcc_mem_peak_rss_bytes(void) {
+#ifdef __linux__
     struct rusage usage;
 
     if (getrusage(RUSAGE_SELF, &usage) != 0) {
@@ -44,6 +53,9 @@ uint64_t ngcc_mem_peak_rss_bytes(void) {
     }
 
     return (uint64_t) usage.ru_maxrss * 1024ULL;
+#else
+    return 0;
+#endif
 }
 
 uint64_t ngcc_mem_heap_bytes(void) {

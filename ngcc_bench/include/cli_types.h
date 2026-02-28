@@ -14,6 +14,9 @@
 #define TEST_MASK_KEX  (1U << 3)
 #define TEST_MASK_ALL  (TEST_MASK_HASH | TEST_MASK_SIG | TEST_MASK_KEM | TEST_MASK_KEX)
 
+#define NGCC_NUM_TESTS     4
+#define NGCC_PATH_BUF_SIZE 1024
+
 /* ── Mode mask ─────────────────────────────────────────────────── */
 #define MODE_MASK_CORRECTNESS (1U << 0)
 #define MODE_MASK_PERFORMANCE (1U << 1)
@@ -85,7 +88,7 @@ typedef struct {
 
 /* ── Overall report ────────────────────────────────────────────── */
 typedef struct {
-    test_report_t tests[4];
+    test_report_t tests[NGCC_NUM_TESTS];
     run_status_t memory_status;
     uint64_t memory_baseline_bytes;
     uint64_t memory_peak_bytes;

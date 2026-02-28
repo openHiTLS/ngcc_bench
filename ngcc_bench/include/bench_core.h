@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <stddef.h>
 
+/* Maximum buffer size for any single allocation (64 MiB). */
+#define NGCC_MAX_BUFFER_LEN (64ULL * 1024ULL * 1024ULL)
+
 typedef int (*ngcc_operation_fn)(void *ctx);
 
 typedef struct {
@@ -35,6 +38,7 @@ typedef struct {
     double cycles_cv_percent;
 } ngcc_perf_result_t;
 
+int ngcc_is_valid_len(unsigned long long n);
 int ngcc_fill_random(unsigned char *buf, size_t len);
 int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
                             ngcc_operation_fn op,

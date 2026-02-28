@@ -1,9 +1,12 @@
 #include "cycle_counter.h"
 
+#ifdef __linux__
 #include <linux/perf_event.h>
-#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/syscall.h>
+#endif
+
+#include <string.h>
 #include <unistd.h>
 
 #if defined(__x86_64__)
@@ -37,8 +40,6 @@ void cycle_counter_close(cycle_counter_t *counter) {
 }
 
 int cycle_counter_open(cycle_counter_t *counter, int cycles_enabled) {
-    struct perf_event_attr pe;
-
     counter->source = CYCLE_SOURCE_NONE;
     counter->perf_fd = -1;
 
@@ -46,19 +47,24 @@ int cycle_counter_open(cycle_counter_t *counter, int cycles_enabled) {
         return 0;
     }
 
-    memset(&pe, 0, sizeof(pe));
-    pe.type = PERF_TYPE_HARDWARE;
-    pe.size = sizeof(pe);
-    pe.config = PERF_COUNT_HW_CPU_CYCLES;
-    pe.disabled = 1;
-    pe.exclude_kernel = 0;
-    pe.exclude_hv = 0;
+#ifdef __linux__
+    {
+        struct perf_event_attr pe;
+        memset(&pe, 0, sizeof(pe));
+        pe.type = PERF_TYPE_HARDWARE;
+        pe.size = sizeof(pe);
+        pe.config = PERF_COUNT_HW_CPU_CYCLES;
+        pe.disabled = 1;
+        pe.exclude_kernel = 0;
+        pe.exclude_hv = 0;
 
-    counter->perf_fd = (int) syscall(__NR_perf_event_open, &pe, 0, -1, -1, 0);
-    if (counter->perf_fd >= 0) {
-        counter->source = CYCLE_SOURCE_PERF;
-        return 0;
+        counter->perf_fd = (int) syscall(__NR_perf_event_open, &pe, 0, -1, -1, 0);
+        if (counter->perf_fd >= 0) {
+            counter->source = CYCLE_SOURCE_PERF;
+            return 0;
+        }
     }
+#endif
 
 #if defined(__x86_64__)
     counter->source = CYCLE_SOURCE_TSC;
@@ -72,11 +78,13 @@ int cycle_counter_open(cycle_counter_t *counter, int cycles_enabled) {
 }
 
 unsigned long long cycle_counter_begin(cycle_counter_t *counter) {
+#ifdef __linux__
     if (counter->source == CYCLE_SOURCE_PERF) {
         ioctl(counter->perf_fd, PERF_EVENT_IOC_RESET, 0);
         ioctl(counter->perf_fd, PERF_EVENT_IOC_ENABLE, 0);
         return 0;
     }
+#endif
 
 #if defined(__x86_64__)
     if (counter->source == CYCLE_SOURCE_TSC) {
@@ -96,6 +104,7 @@ unsigned long long cycle_counter_begin(cycle_counter_t *counter) {
 unsigned long long cycle_counter_end(cycle_counter_t *counter, unsigned long long start_cycles) {
     unsigned long long cycles = 0;
 
+#ifdef __linux__
     if (counter->source == CYCLE_SOURCE_PERF) {
         ioctl(counter->perf_fd, PERF_EVENT_IOC_DISABLE, 0);
         if (read(counter->perf_fd, &cycles, sizeof(cycles)) != (ssize_t) sizeof(cycles)) {
@@ -103,6 +112,7 @@ unsigned long long cycle_counter_end(cycle_counter_t *counter, unsigned long lon
         }
         return cycles;
     }
+#endif
 
 #if defined(__x86_64__)
     if (counter->source == CYCLE_SOURCE_TSC) {
@@ -118,5 +128,6 @@ unsigned long long cycle_counter_end(cycle_counter_t *counter, unsigned long lon
     }
 #endif
 
+    (void) start_cycles;
     return 0;
 }
