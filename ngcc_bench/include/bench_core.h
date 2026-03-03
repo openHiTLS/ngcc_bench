@@ -19,16 +19,13 @@ typedef struct {
     unsigned long long iterations;
     unsigned long long warmup_iterations;
     double elapsed_ms;
-    double total_time_ms;
     double ops_per_sec;
     double bytes_per_sec;
     double bytes_per_op;
     int cycles_available;
     double cycles_per_op;
-    double time_ms_min;
     double time_ms_mean;
     double time_ms_median;
-    double time_ms_max;
     double time_ms_stddev;
     double time_ms_cv_percent;
     double cycles_min;
@@ -36,6 +33,7 @@ typedef struct {
     double cycles_max;
     double cycles_stddev;
     double cycles_cv_percent;
+    double cycles_per_byte;
 } ngcc_perf_result_t;
 
 int ngcc_is_valid_len(unsigned long long n);

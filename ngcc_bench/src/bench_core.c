@@ -115,6 +115,7 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
         return -1;
     }
 
+    /* 预热: iterations 的 1%, 最少 10 次, 消除冷缓存影响 */
     warmup = cfg->iterations / 100;
     if (warmup < 10) {
         warmup = 10;
@@ -142,6 +143,7 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
     stats_init(&time_stats);
     stats_init(&cycle_stats);
 
+    /* 分配样本数组, 用于计算中位数 (若 malloc 失败则降级为用均值代替中位数) */
     if (cfg->iterations <= (unsigned long long) SIZE_MAX) {
         sample_capacity = (size_t) cfg->iterations;
     }
@@ -163,24 +165,27 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
         goto cleanup;
     }
 
+    /* ===== 测量循环: 每次迭代记录时间和 CPU 周期 ===== */
     for (i = 0; i < cfg->iterations; ++i) {
         unsigned long long iter_cycle_start;
         unsigned long long iter_cycles;
         double iter_time_ms;
 
-        iter_cycle_start = cycle_counter_begin(&counter);
         if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_iter_start) != 0) {
             goto cleanup;
         }
+
+        iter_cycle_start = cycle_counter_begin(&counter);
 
         if (op(op_ctx) != 0) {
             goto cleanup;
         }
 
+        iter_cycles = cycle_counter_end(&counter, iter_cycle_start);
+
         if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_iter_end) != 0) {
             goto cleanup;
         }
-        iter_cycles = cycle_counter_end(&counter, iter_cycle_start);
 
         iter_time_ms = timespec_ms_diff(&ts_iter_start, &ts_iter_end);
         stats_update(&time_stats, iter_time_ms);
@@ -201,26 +206,29 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
         goto cleanup;
     }
 
+    /* ===== 吞吐量计算 ===== */
     out_result->elapsed_ms = timespec_ms_diff(&ts_total_start, &ts_total_end);
-    out_result->total_time_ms = out_result->elapsed_ms;
     if (out_result->elapsed_ms > 0.0) {
+        /* ops_per_sec = iterations / (elapsed_ms / 1000) */
         out_result->ops_per_sec = ((double) cfg->iterations * 1000.0) / out_result->elapsed_ms;
     }
     out_result->bytes_per_op = (double) cfg->bytes_per_op;
     if (cfg->bytes_per_op > 0 && out_result->elapsed_ms > 0.0) {
+        /* bytes_per_sec = iterations * bytes_per_op / (elapsed_ms / 1000) */
         out_result->bytes_per_sec = ((double) cfg->iterations * (double) cfg->bytes_per_op * 1000.0) / out_result->elapsed_ms;
     }
 
+    /* ===== 时间统计: 均值 / 标准差 / 变异系数 / 中位数 ===== */
     out_result->cycles_available = (counter.source != CYCLE_SOURCE_NONE);
-    out_result->time_ms_min = time_stats.min;
     out_result->time_ms_mean = time_stats.mean;
-    out_result->time_ms_max = time_stats.max;
     out_result->time_ms_stddev = stats_stddev(&time_stats);
     if (time_stats.mean > 0.0) {
+        /* CV = (stddev / mean) * 100% */
         out_result->time_ms_cv_percent = (out_result->time_ms_stddev / time_stats.mean) * 100.0;
     }
     out_result->time_ms_median = keep_time_samples ? compute_median(time_samples, sample_capacity) : time_stats.mean;
 
+    /* ===== CPU 周期统计: 均值 / 标准差 / 变异系数 / min / max / 中位数 ===== */
     if (out_result->cycles_available && cycle_stats.count > 0) {
         out_result->cycles_per_op = cycle_stats.mean;
         out_result->cycles_min = cycle_stats.min;
@@ -237,6 +245,11 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
         out_result->cycles_stddev = 0.0;
         out_result->cycles_cv_percent = 0.0;
         out_result->cycles_median = 0.0;
+    }
+
+    /* cycles_per_byte = cycles_per_op / bytes_per_op  */
+    if (out_result->cycles_available && out_result->cycles_per_op > 0.0 && cfg->bytes_per_op > 0) {
+        out_result->cycles_per_byte = out_result->cycles_per_op / (double) cfg->bytes_per_op;
     }
 
     rc = 0;
