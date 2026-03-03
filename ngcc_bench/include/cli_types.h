@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "bench_core.h"
+#include "mem_stat.h"
 #include "stability.h"
 
 /* ── Test mask ─────────────────────────────────────────────────── */
@@ -90,8 +91,7 @@ typedef struct {
 typedef struct {
     test_report_t tests[NGCC_NUM_TESTS];
     run_status_t memory_status;
-    uint64_t memory_baseline_bytes;
-    uint64_t memory_peak_bytes;
+    ngcc_static_mem_t static_mem;
     uint64_t memory_heap_baseline_bytes;
     uint64_t memory_heap_peak_bytes;
 } run_report_t;
