@@ -307,14 +307,26 @@ static int run_stability_for_test(const ngcc_api_t *api,
 static int run_memory_mode(const ngcc_api_t *api,
                            const cli_options_t *opts,
                            run_report_t *report) {
-    uint64_t baseline_bytes;
-    uint64_t peak_bytes;
+    ngcc_static_mem_t static_mem;
     uint64_t heap_baseline;
     uint64_t heap_end;
     size_t i;
     int failed = 0;
 
-    baseline_bytes = ngcc_mem_current_rss_bytes();
+    /* static memory: ELF segment sizes of the algorithm library */
+    if (ngcc_mem_analyze_static(opts->lib_path, &static_mem) == 0) {
+        printf("[memory][static] text=%llu data=%llu bss=%llu rodata=%llu total=%llu\n",
+               (unsigned long long) static_mem.text_size,
+               (unsigned long long) static_mem.data_size,
+               (unsigned long long) static_mem.bss_size,
+               (unsigned long long) static_mem.rodata_size,
+               (unsigned long long) static_mem.total);
+    } else {
+        printf("[memory][static] unavailable\n");
+        memset(&static_mem, 0, sizeof(static_mem));
+    }
+
+    /* dynamic memory: heap allocation delta around correctness tests */
     heap_baseline = ngcc_mem_heap_bytes();
 
     for (i = 0; i < sizeof(k_tests) / sizeof(k_tests[0]); ++i) {
@@ -326,17 +338,13 @@ static int run_memory_mode(const ngcc_api_t *api,
         }
     }
 
-    peak_bytes = ngcc_mem_peak_rss_bytes();
     heap_end = ngcc_mem_heap_bytes();
-    printf("[memory] baseline_bytes=%llu peak_bytes=%llu heap_baseline=%llu heap_end=%llu heap_delta=%lld\n",
-           (unsigned long long) baseline_bytes,
-           (unsigned long long) peak_bytes,
+    printf("[memory][dynamic] heap_baseline=%llu heap_after=%llu heap_delta=%lld\n",
            (unsigned long long) heap_baseline,
            (unsigned long long) heap_end,
            (long long) heap_end - (long long) heap_baseline);
 
-    report->memory_baseline_bytes = baseline_bytes;
-    report->memory_peak_bytes = peak_bytes;
+    report->static_mem = static_mem;
     report->memory_heap_baseline_bytes = heap_baseline;
     report->memory_heap_peak_bytes = heap_end;
     report->memory_status = failed ? STATUS_FAIL : STATUS_PASS;

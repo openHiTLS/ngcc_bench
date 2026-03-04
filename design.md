@@ -883,13 +883,13 @@ void print_perf_result_console(const PerfResult* r, const char* algo_name) {
 
 | 类型 | 指标 | 测量方法 |
 |-----|------|---------|
-| **静态内存** | .text/.data/.bss/.rodata/.tdata/.tbss 段大小 | `size` 命令解析 ELF |
-| **动态内存（快速）** | VmPeak/VmRSS/VmData/VmStk（实际占用） | `/proc/self/status` 零开销 |
-| **动态内存（详细）** | 堆峰值、分配次数、**泄漏检测**、调用栈 | Heaptrack（~10%开销） |
+| **静态内存** | .text/.data/.bss/.rodata 段大小 | `size -A` 命令解析 ELF |
+| **动态内存** | 堆分配增量（运行前后差值） | `mallinfo2()` 差值 |
+| **深度分析（可选）** | 堆峰值、分配次数、**泄漏检测**、调用栈 | Heaptrack（~10%开销） |
 
-**为什么需要两种动态内存分析**：
-- `/proc/self/status`: 回答"**是否**有内存问题"（快速评估）
-- `Heaptrack`: 回答"**在哪里**有内存问题"（定位泄漏）
+**内存测试架构**：
+- `size -A`: 回答"算法库本身有多大"（代码、常量、全局变量）
+- `mallinfo2()` 差值: 回答"运行算法时动态分配了多少堆内存"
 
 ### 5.2 工具选择菜单
 
@@ -958,48 +958,45 @@ int analyze_static_memory(const char* library_path, StaticMemoryResult* result) 
 }
 ```
 
-### 5.4 快速动态内存分析 (/proc/self/status)
+### 5.4 动态内存分析 (mallinfo2)
 
-**优势**: 无额外开销、实时监控、适合快速评估
+**优势**: 精确归因到算法库、零采样开销、无需外部工具
+
+使用 glibc `mallinfo2()` 测量运行前后堆分配差值，精确反映算法运行时的动态内存占用：
 
 ```c
-// tests/src/memory_test.c (proc 分析部分)
+// ngcc_bench/src/mem_stat.c (动态分析部分)
 
-typedef struct {
-    size_t vm_peak;         // 峰值虚拟内存 (KB)
-    size_t vm_size;         // 当前虚拟内存 (KB)
-    size_t vm_rss;          // 物理内存占用 (KB)
-    size_t vm_data;         // 数据段内存 (KB)
-    size_t vm_stk;          // 栈内存 (KB)
-    size_t vm_exe;          // 代码段内存 (KB)
-} ProcMemoryResult;
+// 需要 glibc >= 2.33
+#if defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 33))
+#include <malloc.h>
+#define HAVE_MALLINFO2 1
+#endif
 
-int analyze_proc_memory(ProcMemoryResult* result) {
-    FILE* fp = fopen("/proc/self/status", "r");
-    if (!fp) return -1;
-
-    char line[256];
-    while (fgets(line, sizeof(line), fp)) {
-        size_t value;
-        if (sscanf(line, "VmPeak: %zu kB", &value) == 1)
-            result->vm_peak = value;
-        else if (sscanf(line, "VmSize: %zu kB", &value) == 1)
-            result->vm_size = value;
-        else if (sscanf(line, "VmRSS: %zu kB", &value) == 1)
-            result->vm_rss = value;
-        else if (sscanf(line, "VmData: %zu kB", &value) == 1)
-            result->vm_data = value;
-        else if (sscanf(line, "VmStk: %zu kB", &value) == 1)
-            result->vm_stk = value;
-        else if (sscanf(line, "VmExe: %zu kB", &value) == 1)
-            result->vm_exe = value;
-    }
-    fclose(fp);
+uint64_t ngcc_mem_heap_bytes(void) {
+#if HAVE_MALLINFO2
+    struct mallinfo2 mi = mallinfo2();
+    return (uint64_t) mi.uordblks;    // 当前已分配的堆内存
+#else
     return 0;
+#endif
 }
 ```
 
-### 5.5 Heaptrack 详细分析 (推荐)
+**使用方式**：
+
+```c
+uint64_t heap_before = ngcc_mem_heap_bytes();
+run_algorithm();
+uint64_t heap_after  = ngcc_mem_heap_bytes();
+int64_t  heap_delta  = heap_after - heap_before;  // 算法的堆分配增量
+```
+
+> [!NOTE]
+> `mallinfo2()` 只统计 glibc malloc 管理的堆内存，不包含 mmap 大块分配。
+> 对于算法库场景，这通常已足够覆盖。
+
+### 5.5 Heaptrack 详细分析 (可选扩展)
 
 **优势**: 低开销、详细分析、支持GUI可视化
 
@@ -1091,9 +1088,9 @@ int run_heaptrack_test(const char* library_path, HeaptrackResult* result) {
 
 | 工具 | 开销 | 精度 | 适用场景 |
 |-----|------|------|---------|
-| **静态分析 (size)** | 无 | 精确 | ELF段大小、TLS段 |
-| **/proc/self/status** | 无 | 高 | 快速动态内存评估 ✅ |
-| **Heaptrack** | 低(~10%) | 高 | 堆内存详细分析 ✅ |
+| **静态分析 (size -A)** | 无 | 精确 | ELF段大小 |
+| **mallinfo2() 差值** | 无 | 高 | 堆分配增量，精确归因 ✅ |
+| **Heaptrack** | 低(~10%) | 高 | 堆内存详细分析（可选） |
 
 ---
 

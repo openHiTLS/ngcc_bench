@@ -309,8 +309,15 @@ int write_json_report(const cli_options_t *opts,
     /* memory */
     jw_begin_object(&w, "memory");
     jw_key_str(&w, "status", status_to_text(report->memory_status));
-    jw_key_llu(&w, "baseline_bytes", (unsigned long long) report->memory_baseline_bytes);
-    jw_key_llu(&w, "peak_bytes", (unsigned long long) report->memory_peak_bytes);
+
+    jw_begin_object(&w, "static_mem");
+    jw_key_llu(&w, "text_bytes", (unsigned long long) report->static_mem.text_size);
+    jw_key_llu(&w, "data_bytes", (unsigned long long) report->static_mem.data_size);
+    jw_key_llu(&w, "bss_bytes", (unsigned long long) report->static_mem.bss_size);
+    jw_key_llu(&w, "rodata_bytes", (unsigned long long) report->static_mem.rodata_size);
+    jw_key_llu(&w, "total_bytes", (unsigned long long) report->static_mem.total);
+    jw_end_object(&w); /* static_mem */
+
     jw_key_llu(&w, "heap_baseline_bytes", (unsigned long long) report->memory_heap_baseline_bytes);
     jw_key_llu(&w, "heap_peak_bytes", (unsigned long long) report->memory_heap_peak_bytes);
     jw_end_object(&w);
