@@ -146,16 +146,9 @@ int run_interactive_setup(cli_options_t *opts,
         "kem", "kem-keygen", "kem-encap", "kem-decap", "kex", "all"
     };
     static const char *const mode_items[] = {"correctness", "performance", "memory", "stability", "all"};
-    static const char *const cycles_items[] = {"on", "off"};
     int test_choice;
     int mode_choice;
-    int cycles_choice;
-    unsigned long long u64_tmp;
     double d_tmp;
-    int i_tmp;
-    int hash_selected;
-    int correctness_selected;
-    int performance_selected;
     int stability_selected;
 
     printf("NGCC Benchmark Interactive Mode\n");
@@ -186,28 +179,7 @@ int run_interactive_setup(cli_options_t *opts,
         return -1;
     }
 
-    hash_selected = (opts->test_mask & TEST_MASK_HASH) != 0;
-    correctness_selected = (opts->mode_mask & MODE_MASK_CORRECTNESS) != 0;
-    performance_selected = (opts->mode_mask & MODE_MASK_PERFORMANCE) != 0;
     stability_selected = (opts->mode_mask & MODE_MASK_STABILITY) != 0;
-
-    if (prompt_optional_u64("Message length bytes", (unsigned long long) opts->msg_len, &u64_tmp) != 0) {
-        return -1;
-    }
-    opts->msg_len = (size_t) u64_tmp;
-
-    if (hash_selected) {
-        if (prompt_optional_int("Digest length bits", opts->digest_len_bits > 0 ? opts->digest_len_bits : 256, &i_tmp) != 0) {
-            return -1;
-        }
-        opts->digest_len_bits = i_tmp;
-    }
-
-    if (performance_selected) {
-        if (prompt_optional_u64("Performance iterations", opts->iterations, &opts->iterations) != 0) {
-            return -1;
-        }
-    }
 
     if (stability_selected) {
         d_tmp = opts->duration_hours;
@@ -269,10 +241,7 @@ int run_interactive_setup(cli_options_t *opts,
         }
     }
 
-    if (prompt_menu_choice("Cycle counter output:", cycles_items, sizeof(cycles_items) / sizeof(cycles_items[0]), &cycles_choice) != 0) {
-        return -1;
-    }
-    opts->cycles_enabled = (cycles_choice == 1) ? 1 : 0;
+
 
     if (correctness_selected) {
         if (prompt_read_line("Optional KAT file (blank to skip): ", kat_buf, kat_buf_len) != 0) {

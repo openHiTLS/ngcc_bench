@@ -12,6 +12,7 @@ typedef struct {
                      const unsigned char *msg,
                      unsigned long long msg_len_bits,
                      unsigned char *digest);
+    int (*get_digest_len_bits)(void);
 
     unsigned long long (*sig_get_pk_len_bytes)(void);
     unsigned long long (*sig_get_sk_len_bytes)(void);

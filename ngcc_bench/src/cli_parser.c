@@ -20,8 +20,8 @@ void print_usage(const char *prog) {
     printf("ngcc_bench %s\n\n", NGCC_VERSION);
     printf("Usage:\n");
     printf("  %s --lib /path/to/lib.so --test hash|dsa|dsa-keygen|dsa-sig|dsa-verify|kem|kem-keygen|kem-encap|kem-decap|kex|all --mode correctness|performance|memory|stability|all\n", prog);
-    printf("     [--iterations N] [--duration-hours H] [--stability-max-cases N] [--stability-sample-ms MS] [--msg-len BYTES]\n");
-    printf("     [--digest-len-bits BITS] [--cycles on|off] [--json-out PATH] [--kat FILE]\n");
+    printf("     [--duration-hours H] [--stability-max-cases N] [--stability-sample-ms MS]\n");
+    printf("     [--json-out PATH] [--kat FILE]\n");
     printf("     [--stable-throughput-cv-percent P] [--stable-cycles-cv-percent P] [--stable-time-cv-percent P]\n");
     printf("     [--stable-memory-growth-percent P] [--stable-error-rate-percent P]\n");
     printf("     [--warning-throughput-cv-percent P] [--warning-cycles-cv-percent P] [--warning-time-cv-percent P]\n");
@@ -35,11 +35,7 @@ void init_default_options(cli_options_t *opts) {
     memset(opts, 0, sizeof(*opts));
     opts->test_mask = TEST_MASK_ALL;
     opts->mode_mask = MODE_MASK_ALL;
-    opts->iterations = 1000;
     opts->duration_hours = 6.0;
-    opts->msg_len = 1024;
-    opts->digest_len_bits = 0;
-    opts->cycles_enabled = 1;
     opts->stability_max_cases = 3000;
     opts->stability_sample_ms = 1.0;
     ngcc_stability_thresholds_set_defaults(&opts->stability_thresholds);
@@ -176,17 +172,7 @@ int parse_mode_mask(const char *s, unsigned int *out_mask) {
     return -1;
 }
 
-static int parse_cycles(const char *s, int *enabled) {
-    if (strcmp(s, "on") == 0) {
-        *enabled = 1;
-        return 0;
-    }
-    if (strcmp(s, "off") == 0) {
-        *enabled = 0;
-        return 0;
-    }
-    return -1;
-}
+
 
 /* ── Main option parser ────────────────────────────────────────── */
 
@@ -197,13 +183,9 @@ int parse_cli_options(int argc, char **argv, cli_options_t *opts) {
         {"lib", required_argument, NULL, 'l'},
         {"test", required_argument, NULL, 't'},
         {"mode", required_argument, NULL, 'm'},
-        {"iterations", required_argument, NULL, 'i'},
         {"duration-hours", required_argument, NULL, 'd'},
         {"stability-max-cases", required_argument, NULL, 's'},
         {"stability-sample-ms", required_argument, NULL, OPT_STABILITY_SAMPLE_MS},
-        {"msg-len", required_argument, NULL, 'g'},
-        {"digest-len-bits", required_argument, NULL, 'b'},
-        {"cycles", required_argument, NULL, 'c'},
         {"json-out", required_argument, NULL, 'j'},
         {"kat", required_argument, NULL, 'k'},
         {"stable-throughput-cv-percent", required_argument, NULL, OPT_STABLE_THROUGHPUT_CV},
@@ -238,12 +220,6 @@ int parse_cli_options(int argc, char **argv, cli_options_t *opts) {
                     return -1;
                 }
                 break;
-            case 'i':
-                if (parse_unsigned_ll(optarg, &opts->iterations) != 0 || opts->iterations == 0) {
-                    fprintf(stderr, "invalid --iterations value: %s\n", optarg);
-                    return -1;
-                }
-                break;
             case 'd':
                 if (parse_double_value(optarg, &opts->duration_hours) != 0 || opts->duration_hours <= 0.0) {
                     fprintf(stderr, "invalid --duration-hours value: %s\n", optarg);
@@ -264,27 +240,7 @@ int parse_cli_options(int argc, char **argv, cli_options_t *opts) {
                     return -1;
                 }
                 break;
-            case 'g': {
-                unsigned long long msg_len_val;
-                if (parse_unsigned_ll(optarg, &msg_len_val) != 0 || msg_len_val == 0) {
-                    fprintf(stderr, "invalid --msg-len value: %s\n", optarg);
-                    return -1;
-                }
-                opts->msg_len = (size_t) msg_len_val;
-                break;
-            }
-            case 'b':
-                if (parse_int_value(optarg, &opts->digest_len_bits) != 0 || opts->digest_len_bits <= 0) {
-                    fprintf(stderr, "invalid --digest-len-bits value: %s\n", optarg);
-                    return -1;
-                }
-                break;
-            case 'c':
-                if (parse_cycles(optarg, &opts->cycles_enabled) != 0) {
-                    fprintf(stderr, "invalid --cycles value: %s\n", optarg);
-                    return -1;
-                }
-                break;
+
             case 'j':
                 opts->json_out_path = optarg;
                 break;
@@ -369,7 +325,6 @@ int parse_cli_options(int argc, char **argv, cli_options_t *opts) {
 /* ── Validation ────────────────────────────────────────────────── */
 
 int validate_options(const cli_options_t *opts) {
-    int hash_selected;
     int correctness_selected;
     const ngcc_stability_thresholds_t *thr;
 
@@ -381,12 +336,6 @@ int validate_options(const cli_options_t *opts) {
 
     if (opts->lib_path == NULL) {
         fprintf(stderr, "error: --lib is required\n");
-        return -1;
-    }
-
-    hash_selected = (opts->test_mask & TEST_MASK_HASH) != 0;
-    if (hash_selected && opts->digest_len_bits <= 0) {
-        fprintf(stderr, "error: --digest-len-bits is required when hash test is selected\n");
         return -1;
     }
 

@@ -295,7 +295,7 @@ static int run_correctness_for_test(const ngcc_api_t *api,
         unsigned long long passed = 0;
         unsigned long long failed = 0;
         int kat_rc = dispatch->kat_fn(api,
-                                      opts->digest_len_bits,
+                                      api->get_digest_len_bits(),
                                       opts->kat_path,
                                       &total,
                                       &passed,
@@ -321,7 +321,7 @@ static int run_correctness_for_test(const ngcc_api_t *api,
         printf("[%s][correctness] KAT_NO_VECTOR fallback=random\n", test->name);
     }
 
-    rc = dispatch->correctness_fn(api, opts->digest_len_bits, opts->msg_len);
+    rc = dispatch->correctness_fn(api, api->get_digest_len_bits(), k_msg_lens[0]);
     printf("[%s][correctness] %s\n", test->name, rc == 0 ? "PASS" : "FAIL");
     if (report != NULL) {
         report->correctness_status = (rc == 0) ? STATUS_PASS : STATUS_FAIL;
@@ -338,60 +338,75 @@ static int run_performance_for_test(const ngcc_api_t *api,
     ngcc_perf_config_t cfg;
     ngcc_perf_result_t result;
     int rc;
+    size_t mi;
+    int any_fail = 0;
+    int digest_bits = 0;
 
-    cfg.iterations = opts->iterations;
-    cfg.cycles_enabled = opts->cycles_enabled;
+    (void) opts;
+
+    if (test->kind == NGCC_TEST_HASH) {
+        digest_bits = api->get_digest_len_bits();
+    }
+
+    cfg.iterations = NGCC_PERF_ITERATIONS;
     cfg.bytes_per_op = 0;
 
-    rc = dispatch->performance_fn(api, opts->digest_len_bits, opts->msg_len, &cfg, &result);
+    for (mi = 0; mi < NGCC_NUM_MSG_LENS; ++mi) {
+        size_t msg_len = k_msg_lens[mi];
 
-    if (rc != 0) {
-        printf("[%s][performance] FAIL\n", test->name);
-        if (report != NULL) {
-            report->performance_status = STATUS_FAIL;
+        rc = dispatch->performance_fn(api, digest_bits, msg_len, &cfg, &result);
+
+        if (rc != 0) {
+            printf("[%s][performance][%zuB] FAIL\n", test->name, msg_len);
+            any_fail = 1;
+            continue;
         }
-        return rc;
-    }
 
-    /* basic config */
-    printf("[%s][performance] ops=%llu warmup=%llu elapsed_ms=%.3f bytes/op=%.3f\n",
-           test->name,
-           result.iterations,
-           result.warmup_iterations,
-           result.elapsed_ms,
-           result.bytes_per_op);
-    /* cpu cycles */
-    if (result.cycles_available) {
-        printf("[%s][performance][cycles] min=%.3f mean=%.3f median=%.3f max=%.3f stddev=%.3f cv=%.3f%% per_byte=%.3f\n",
-               test->name,
-               result.cycles_min,
-               result.cycles_per_op,
-               result.cycles_median,
-               result.cycles_max,
-               result.cycles_stddev,
-               result.cycles_cv_percent,
-               result.cycles_per_byte);
-    } else {
-        printf("[%s][performance][cycles] unavailable\n", test->name);
+        printf("[%s][performance][%zuB] ops=%llu warmup=%llu elapsed_ms=%.3f bytes/op=%.3f\n",
+               test->name, msg_len,
+               result.iterations,
+               result.warmup_iterations,
+               result.elapsed_ms,
+               result.bytes_per_op);
+        if (result.cycles_available) {
+            printf("[%s][performance][%zuB][cycles] min=%.3f mean=%.3f median=%.3f max=%.3f stddev=%.3f cv=%.3f%% per_byte=%.3f\n",
+                   test->name, msg_len,
+                   result.cycles_min,
+                   result.cycles_per_op,
+                   result.cycles_median,
+                   result.cycles_max,
+                   result.cycles_stddev,
+                   result.cycles_cv_percent,
+                   result.cycles_per_byte);
+        } else {
+            printf("[%s][performance][%zuB][cycles] unavailable\n", test->name, msg_len);
+        }
+        printf("[%s][performance][%zuB][throughput] ops/s=%.3f bytes/s=%.3f\n",
+               test->name, msg_len,
+               result.ops_per_sec,
+               result.bytes_per_sec);
+        printf("[%s][performance][%zuB][time] mean_ms=%.6f median_ms=%.6f stddev_ms=%.6f cv=%.3f%%\n",
+               test->name, msg_len,
+               result.time_ms_mean,
+               result.time_ms_median,
+               result.time_ms_stddev,
+               result.time_ms_cv_percent);
+
+        if (report != NULL) {
+            report->performance[mi] = result;
+            report->performance_count = (int) mi + 1;
+        }
+
+        /* KEM/KEX/sub-ops don't depend on msg_len, run once only */
+        if (test->kind != NGCC_TEST_HASH && test->kind != NGCC_TEST_DSA) {
+            break;
+        }
     }
-    /* throughput */
-    printf("[%s][performance][throughput] ops/s=%.3f bytes/s=%.3f\n",
-           test->name,
-           result.ops_per_sec,
-           result.bytes_per_sec);
-    /* time */
-    printf("[%s][performance][time] mean_ms=%.6f median_ms=%.6f stddev_ms=%.6f cv=%.3f%%\n",
-           test->name,
-           result.time_ms_mean,
-           result.time_ms_median,
-           result.time_ms_stddev,
-           result.time_ms_cv_percent);
 
     if (report != NULL) {
-        report->performance = result;
-        report->performance_status = STATUS_PASS;
+        report->performance_status = any_fail ? STATUS_FAIL : STATUS_PASS;
     }
-    return 0;
+    return any_fail ? -1 : 0;
 }
 
 static int run_stability_for_test(const ngcc_api_t *api,
@@ -408,9 +423,9 @@ static int run_stability_for_test(const ngcc_api_t *api,
     rc = ngcc_run_stability(api,
                             dispatch->correctness_fn,
                             dispatch->bytes_per_case_fn,
-                            opts->digest_len_bits,
-                            opts->msg_len,
-                            opts->cycles_enabled,
+                            (test->kind == NGCC_TEST_HASH) ? api->get_digest_len_bits() : 0,
+                            NGCC_STABILITY_MSG_LEN,
+                            1,
                             opts->stability_sample_ms,
                             opts->duration_hours,
                             opts->stability_max_cases,
