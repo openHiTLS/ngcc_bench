@@ -105,12 +105,12 @@ ctest --test-dir build --output-on-failure
 ```bash
 ./build/ngcc_cli_regression_test ./build/ngcc_bench ./build/tests/mock/libmock_ngcc.so ./build/tests/mock/libmock_hash_only.so
 ./build/ngcc_stability_profile --benchmark ./build/ngcc_bench --profile quick
-python3 tests/validate_json_report.py report.json docs/json_schema_v3.json
+python3 tests/validate_json_report.py report.json docs/json_schema_v4.json
 ```
 
 ## 文档
 
 - CLI 说明：`docs/cli.md`
-- JSON schema：`docs/json_schema.md`、`docs/json_schema_v3.json`
+- JSON schema：`docs/json_schema.md`、`docs/json_schema_v4.json`
 - 架构说明：`docs/architecture.md`
 - 动态库契约：`docs/library_contract.md`

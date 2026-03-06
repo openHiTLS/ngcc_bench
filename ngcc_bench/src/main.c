@@ -246,6 +246,7 @@ static int run_stability_for_test(const ngcc_api_t *api,
     int rc;
     int unstable_fail = 0;
 
+    memset(&result, 0, sizeof(result));
     rc = ngcc_run_stability(api,
                             kind,
                             opts->digest_len_bits,
@@ -262,10 +263,11 @@ static int run_stability_for_test(const ngcc_api_t *api,
         if (!result.interrupted && strcmp(result.status, "UNSTABLE") == 0) {
             unstable_fail = 1;
         }
-        printf("[%s][stability] %s cases=%llu elapsed_s=%.3f\n",
+        printf("[%s][stability] %s cases=%llu samples=%llu elapsed_s=%.3f\n",
                name,
                status,
                result.cases_run,
+               result.sample_count,
                result.elapsed_seconds);
         printf("[%s][stability][throughput] mean=%.3f stddev=%.3f cv=%.3f%% min=%.3f max=%.3f\n",
                name,
@@ -328,9 +330,10 @@ static int run_stability_for_test(const ngcc_api_t *api,
             }
         }
     } else {
-        printf("[%s][stability] FAIL cases=%llu elapsed_s=%.3f\n",
+        printf("[%s][stability] FAIL cases=%llu samples=%llu elapsed_s=%.3f\n",
                name,
                result.cases_run,
+               result.sample_count,
                result.elapsed_seconds);
         if (report != NULL) {
             report->stability = result;

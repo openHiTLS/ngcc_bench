@@ -155,6 +155,7 @@ int ngcc_run_stability(const ngcc_api_t *api,
     running_stats_t time_stats;
     double max_seconds;
     unsigned long long cases_run = 0;
+    unsigned long long sample_count = 0;
     unsigned long long total_executions = 0;
     unsigned long long error_count = 0;
     int loop_failed = 0;
@@ -290,6 +291,7 @@ int ngcc_run_stability(const ngcc_api_t *api,
 
         if (batch_ok > 0) {
             double avg_case_ms = batch_ms / (double) batch_ok;
+            sample_count++;
             stats_update(&time_stats, avg_case_ms);
             if (batch_ms > 0.0) {
                 double throughput_ops = ((double) batch_ok * 1000.0) / batch_ms;
@@ -342,6 +344,7 @@ int ngcc_run_stability(const ngcc_api_t *api,
     }
 
     out_result->cases_run = cases_run;
+    out_result->sample_count = sample_count;
     out_result->failed = loop_failed;
     out_result->total_executions = total_executions;
     out_result->error_count = error_count;

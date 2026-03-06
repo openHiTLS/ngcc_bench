@@ -37,10 +37,10 @@ def main() -> int:
     with open(schema_path, "r", encoding="utf-8") as f:
         schema = json.load(f)
 
-    expect(schema.get("properties", {}).get("schema_version", {}).get("const") == 3,
-           "schema const schema_version must be 3")
+    schema_version = schema.get("properties", {}).get("schema_version", {}).get("const")
+    expect(isinstance(schema_version, int), "schema const schema_version must be integer")
 
-    expect(require_key(report, "schema_version") == 3, "schema_version must be 3")
+    expect(require_key(report, "schema_version") == schema_version, f"schema_version must be {schema_version}")
     expect(isinstance(require_key(report, "timestamp"), str), "timestamp must be string")
     expect(isinstance(require_key(report, "library"), str), "library must be string")
 
@@ -76,19 +76,29 @@ def main() -> int:
         expect(float(thr[w]) >= float(thr[s]), f"threshold pair invalid: {w} < {s}")
 
     tests = require_key(report, "tests")
-    statuses = {"PASS", "FAIL", "STOPPED", "SKIPPED"}
+    run_statuses = {"PASS", "FAIL", "STOPPED", "SKIPPED"}
+    stability_statuses = run_statuses if schema_version <= 3 else {
+        "STABLE", "WARNING", "UNSTABLE", "FAIL", "STOPPED", "SKIPPED"
+    }
     for name in ("hash", "dsa", "dsa-keygen", "dsa-sig", "dsa-verify", "kem", "kex",
                  "kem-keygen", "kem-encap", "kem-decap"):
         t = require_key(tests, name)
         expect(isinstance(require_key(t, "selected"), bool), f"tests.{name}.selected must be bool")
-        for k in ("correctness", "performance", "stability"):
-            expect(require_key(t, k) in statuses, f"tests.{name}.{k} invalid status")
+        expect(require_key(t, "correctness") in run_statuses, f"tests.{name}.correctness invalid status")
+        expect(require_key(t, "performance") in run_statuses, f"tests.{name}.performance invalid status")
+        expect(require_key(t, "stability") in stability_statuses, f"tests.{name}.stability invalid status")
         expect("kat" in t, f"tests.{name}.kat missing")
         expect("performance_metrics" in t, f"tests.{name}.performance_metrics missing")
         expect("stability_metrics" in t, f"tests.{name}.stability_metrics missing")
 
+        metrics = t["stability_metrics"]
+        if metrics is not None and schema_version >= 4:
+            expect(isinstance(require_key(metrics, "sample_count"), int), f"tests.{name}.stability_metrics.sample_count must be integer")
+            expect(require_key(metrics, "status") in {"STABLE", "WARNING", "UNSTABLE"},
+                   f"tests.{name}.stability_metrics.status invalid")
+
     mem = require_key(report, "memory")
-    expect(require_key(mem, "status") in statuses, "memory.status invalid")
+    expect(require_key(mem, "status") in run_statuses, "memory.status invalid")
     static_mem = require_key(mem, "static_mem")
     for k in ("text_bytes", "data_bytes", "bss_bytes", "rodata_bytes", "total_bytes"):
         expect(isinstance(require_key(static_mem, k), int), f"memory.static_mem.{k} must be integer")
