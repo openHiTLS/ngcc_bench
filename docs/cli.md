@@ -1,17 +1,11 @@
 # CLI Reference
 
-`ngcc_bench` 支持两种入口：
-
-- 直接运行 `./build/ngcc_bench` 进入交互式菜单
-- 使用完整参数走非交互式 CLI（如下）
-- 交互模式若选择 `stability`，会提示配置 10 个稳定性阈值（回车保持默认）
-
 ## 用法
 
 ```bash
 ./build/ngcc_bench \
   --lib /path/to/lib.so \
-  --test hash|sig|kem|kex|all \
+  --test hash|dsa|dsa-keygen|dsa-sig|dsa-verify|kem|kem-keygen|kem-encap|kem-decap|kex|all \
   --mode correctness|performance|memory|stability|all \
   [--iterations N] \
   [--duration-hours H] \
@@ -20,103 +14,64 @@
   [--msg-len BYTES] \
   [--digest-len-bits BITS] \
   [--cycles on|off] \
-  [--stable-throughput-cv-percent P] \
-  [--stable-cycles-cv-percent P] \
-  [--stable-time-cv-percent P] \
-  [--stable-memory-growth-percent P] \
-  [--stable-error-rate-percent P] \
-  [--warning-throughput-cv-percent P] \
-  [--warning-cycles-cv-percent P] \
-  [--warning-time-cv-percent P] \
-  [--warning-memory-growth-percent P] \
-  [--warning-error-rate-percent P] \
   [--json-out PATH] \
-  [--kat FILE] \
-  [--help] [--version]
+  [--kat FILE]
 ```
 
-## 参数说明
+无参数运行会进入交互模式。
 
-`--version`
-- 显示版本号并退出。
+## `--test`
 
-`--help`
-- 显示帮助信息并退出。
+- `hash`：Hash 聚合测试
+- `dsa`：聚合执行 `keygen + sign + verify`，只输出一个 `dsa` 结果
+- `dsa-keygen`：仅测 `sig_keygen()`
+- `dsa-sig`：仅测 `sig_sign()`，内部先做一次 keygen
+- `dsa-verify`：仅测 `sig_verify()`，内部先构造有效签名
+- `kem`：聚合执行 `keygen + encap + decap`，只输出一个 `kem` 结果
+- `kem-keygen`：仅测 `kem_keygen()`
+- `kem-encap`：仅测 `kem_enc()`，内部先做一次 keygen
+- `kem-decap`：仅测 `kem_dec()`，内部先做一次 keygen + encap
+- `kex`：KEX 整体链路测试
+- `all`：只跑 `hash`、`dsa`、`kem`、`kex`
 
-`--lib`
-- 必选。
-- 待测动态库路径。
+## `--mode`
 
-`--test`
-- 必选。
-- 取值：`hash` / `sig` / `kem` / `kex` / `all`。
+- `correctness`
+- `performance`
+- `memory`
+- `stability`
+- `all`
 
-`--mode`
-- 必选。
-- 取值：`correctness` / `performance` / `memory` / `stability` / `all`。
+## 常用参数
 
-`--iterations`
-- 可选，默认 `1000`。
-- 用于 `performance` 模式，每个测试项执行的迭代次数。
-- 要求：正整数。
+- `--digest-len-bits`：选中 `hash` 时必填
+- `--msg-len`：Hash/DSA 消息长度，默认 `1024`
+- `--iterations`：performance 迭代次数，默认 `1000`
+- `--duration-hours`：stability 最长时长，默认 `6.0`
+- `--stability-max-cases`：stability 最大 case，默认 `3000`
+- `--stability-sample-ms`：stability 采样窗口毫秒数，默认 `1.0`
+- `--cycles on|off`：是否尝试输出周期计数，默认 `on`
+- `--json-out`：写出 JSON 报告
 
-`--duration-hours`
-- 可选，默认 `6.0`。
-- 用于 `stability` 模式，最长运行小时数。
-- 要求：大于 0。
+## `--kat`
 
-`--msg-len`
-- 可选，默认 `1024` 字节。
-- Hash/SIG 使用的消息长度。
-- 要求：正整数。
+仅在 correctness 模式下有效。
 
-`--stability-max-cases`
-- 可选，默认 `3000`。
-- 用于 `stability` 模式，最大 case 数上限。
-- 要求：正整数。
+支持的测试目标：
+- `hash`
+- `dsa-verify`
+- `kex`
 
-`--stability-sample-ms`
-- 可选，默认 `1.0`。
-- 用于 `stability` 模式，每个统计样本的目标聚合窗口（毫秒）。
-- 值越大，抖动越小但反馈越慢；值越小，响应更快但更容易受计时量化噪声影响。
-- 要求：大于 0 的有限数。
+说明：
+- `dsa`、`dsa-keygen`、`dsa-sig`、`kem` 默认回退到随机 correctness
+- KAT 支持 `#` / `;` / `//` 注释、`0x` 前缀、空白/`:`/`_` 分隔
 
-`--digest-len-bits`
-- 可选，但当 `--test` 包含 `hash` 时为必选。
-- Hash 输出摘要位长度。
-- 要求：正整数。
-
-`--cycles`
-- 可选，默认 `on`。
-- `on`：尝试输出 `cycles/op`。
-- 计数源优先级：`perf_event_open` -> `x86_64 rdtsc` -> `ARMv8 cntvct_el0`。
-- `off`：只输出时间与吞吐。
-
-`--json-out`
-- 可选。
-- 指定 JSON 报告输出路径。
-- 程序仍会输出控制台日志；JSON 为额外产物。
-
-`--kat`
-- 可选。
-- 指定 correctness 的 KAT 文件。
-- 需要 `--mode` 包含 `correctness`。
-- 各算法字段模板：
+常用字段：
 - Hash: `INPUT`/`MSG` + `OUTPUT`/`DIGEST`
-- SIG: `PK` + `MSG`/`INPUT` + `SN`/`SIG`/`OUTPUT`
+- DSA verify: `PK` + `MSG`/`INPUT` + `SN`/`SIG`/`OUTPUT`
 - KEM: `SK` + `CT` + `SS`/`OUTPUT`
 - KEX-A: `SKA` + `PKB` + `M2` + `STA` + `SSA`
 - KEX-B: `SKB` + `PKA` + `M3` + `STB` + `SSB`
-- 若某算法在 KAT 文件中无可用向量，会自动回退到随机 correctness。
-- 兼容：支持 `#`/`;`/`//` 注释、`0x` 前缀、hex 分隔符（空白/`:`/`_`）和常见字段别名；`*LEN` 等元数据行会被忽略。
-
-`--stable-*-percent` / `--warning-*-percent`
-- 可选，单位均为 `%`，用于稳定性分级阈值（`STABLE/WARNING/UNSTABLE`）。
-- 稳定档（默认）：
-- `throughput_cv=5`，`cycles_cv=5`，`time_cv=5`，`memory_growth=1`，`error_rate=0`。
-- 警告档（默认）：
-- `throughput_cv=10`，`cycles_cv=10`，`time_cv=10`，`memory_growth=5`，`error_rate=1`。
-- 要求：非负数，且每个 `warning` 阈值必须 `>=` 对应 `stable` 阈值。
 
 ## 默认值
 
@@ -128,107 +83,40 @@
 - `stability-sample-ms = 1.0`
 - `msg-len = 1024`
 - `cycles = on`
-- `stable-throughput-cv-percent = 5`
-- `stable-cycles-cv-percent = 5`
-- `stable-time-cv-percent = 5`
-- `stable-memory-growth-percent = 1`
-- `stable-error-rate-percent = 0`
-- `warning-throughput-cv-percent = 10`
-- `warning-cycles-cv-percent = 10`
-- `warning-time-cv-percent = 10`
-- `warning-memory-growth-percent = 5`
-- `warning-error-rate-percent = 1`
 
-## 返回码
+## 输出示例
 
-- `0`：所有被选中的测试/模式通过。
-- `1`：任一测试失败、参数错误、库加载失败、符号缺失，或稳定性评估为 `UNSTABLE`。
-
-JSON 报告：
-- 当前 `schema_version = 3`。
-- `options.stability_thresholds` 记录本次稳定性阈值配置。
-- schema 定义见：`docs/json_schema_v3.json`。
-
-## 输出字段
-
-正确性：
+聚合 correctness：
 
 ```text
+[dsa][correctness] PASS
 [kem][correctness] PASS
 ```
 
-正确性（hash + KAT）：
+细分 performance：
 
 ```text
-[hash][correctness] PASS total=128 passed=128 failed=0 source=kat
+[dsa-keygen][performance] ops=1000 warmup=10 elapsed_ms=0.321 bytes/op=64.000
+[dsa-keygen][performance][throughput] ops/s=3115264.798 bytes/s=199376947.068
+[dsa-keygen][performance][time] mean_ms=0.000321 median_ms=0.000300 stddev_ms=0.000040 cv=12.462%
 ```
 
-性能（可用 cycles）：
-
-```text
-[sig][performance] ops=1000 warmup=10 elapsed_ms=88.123 total_ms=88.123 ops/s=11347.008 bytes/op=1024.000 bytes/s=11619335.772
-[sig][performance][time] min_ms=0.070000 mean_ms=0.088123 median_ms=0.086000 max_ms=0.130000 stddev_ms=0.010000 cv=11.348%
-[sig][performance][cycles] min=28000.000 mean=30211.200 median=30010.000 max=35800.000 stddev=1300.000 cv=4.303%
-```
-
-性能（cycles 不可用或关闭）：
-
-```text
-[sig][performance] ops=1000 warmup=10 elapsed_ms=88.123 total_ms=88.123 ops/s=11347.008 bytes/op=1024.000 bytes/s=11619335.772 cycles=unavailable
-[sig][performance][time] min_ms=0.070000 mean_ms=0.088123 median_ms=0.086000 max_ms=0.130000 stddev_ms=0.010000 cv=11.348%
-```
-
-内存：
-
-```text
-[memory] baseline_bytes=12328960 peak_bytes=15400960
-```
-
-稳定性：
+stability：
 
 ```text
 [kex][stability] STABLE cases=3000 elapsed_s=456.789
 [kex][stability][throughput] mean=1456789.000 stddev=33506.000 cv=2.300% min=1398234.000 max=1512456.000
-[kex][stability][throughput_bytes] mean=3059256900.000 stddev=70362600.000 cv=2.300% min=2936291400.000 max=3176157600.000 bytes/case=2100.000
-[kex][stability][cycles] mean=1672.000 stddev=38.000 cv=2.270% min=1523.000 max=2103.000
-[kex][stability][time] mean_ms=0.686500 stddev_ms=0.015800 cv=2.300% min_ms=0.640000 max_ms=0.740000
-[kex][stability][memory] start=12582912 end=12648448 min=12582912 max=12664832 growth=0.521%
 [kex][stability][errors] total=3000 failed=0 rate=0.000000% status=STABLE
 ```
 
-中断稳定性测试（`Ctrl+C`）时：
+memory：
 
 ```text
-[kex][stability] STOPPED cases=120 elapsed_s=33.102
+[memory][static] text=4096 data=512 bss=128 rodata=2048 total=6784
+[memory][dynamic] heap_baseline=12328960 heap_after=15400960 heap_delta=3072000
 ```
 
-稳定性不通过示例：
+## 返回码
 
-```text
-[sig][stability] UNSTABLE cases=3000 elapsed_s=12.003
-[sig][stability][reason] performance fluctuation; memory growth;
-```
-
-## 示例
-
-仅跑 KEX 性能：
-
-```bash
-./build/ngcc_bench \
-  --lib /path/to/libalgo.so \
-  --test kex \
-  --mode performance \
-  --iterations 2000
-```
-
-跑全部测试与模式（包含 hash，需给摘要位数）：
-
-```bash
-./build/ngcc_bench \
-  --lib /path/to/libalgo.so \
-  --test all \
-  --mode all \
-  --digest-len-bits 256 \
-  --kat vectors/hash.kat \
-  --json-out reports/full_report.json
-```
+- `0`：全部通过
+- `1`：任一测试失败、参数错误、符号缺失，或 stability 为 `UNSTABLE`

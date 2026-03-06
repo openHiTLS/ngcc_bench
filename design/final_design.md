@@ -188,8 +188,9 @@ typedef struct {
 - **Assumption**: return `0` means success; non‑zero is failure (documented).
 
 #### KEM
-- `kem_keygen` → `kem_enc` → `kem_dec`.
+- `kem_keygen` → `kem_enc` → `kem_dec`。
 - Compare shared secret bytes for equality.
+- 支持分离性能测试：`--test kem-keygen` / `kem-encap` / `kem-decap` 可分别测试单个操作的性能。
 
 #### KEX
 - Simulate Alice and Bob:
@@ -217,7 +218,7 @@ typedef struct {
 ### 4.8 CLI Specification
 ```
 ngcc_bench --lib /path/to/lib.so
-               --test hash|sig|kem|kex|all
+               --test hash|sig|kem-keygen|kem-encap|kem-decap|kex|all
                --mode correctness|performance|memory|stability|all
                [--iterations N]
                [--duration-hours H]

@@ -17,8 +17,14 @@
 
 const test_entry_t k_tests[] = {
     {TEST_MASK_HASH, NGCC_TEST_HASH, "hash"},
-    {TEST_MASK_SIG, NGCC_TEST_SIG, "sig"},
+    {TEST_MASK_DSA, NGCC_TEST_DSA, "dsa"},
+    {TEST_MASK_DSA_KEYGEN, NGCC_TEST_DSA_KEYGEN, "dsa-keygen"},
+    {TEST_MASK_DSA_SIG, NGCC_TEST_DSA_SIG, "dsa-sig"},
+    {TEST_MASK_DSA_VERIFY, NGCC_TEST_DSA_VERIFY, "dsa-verify"},
     {TEST_MASK_KEM, NGCC_TEST_KEM, "kem"},
+    {TEST_MASK_KEM_KEYGEN, NGCC_TEST_KEM_KEYGEN, "kem-keygen"},
+    {TEST_MASK_KEM_ENCAP, NGCC_TEST_KEM_ENCAP, "kem-encap"},
+    {TEST_MASK_KEM_DECAP, NGCC_TEST_KEM_DECAP, "kem-decap"},
     {TEST_MASK_KEX, NGCC_TEST_KEX, "kex"}
 };
 
@@ -46,19 +52,21 @@ static int run_correctness_for_test(const ngcc_api_t *api,
                                                         &passed,
                                                         &failed);
                 break;
-            case NGCC_TEST_SIG:
-                kat_rc = ngcc_sig_correctness_kat_file(api,
-                                                       opts->kat_path,
-                                                       &total,
-                                                       &passed,
-                                                       &failed);
+            case NGCC_TEST_DSA:
+            case NGCC_TEST_DSA_KEYGEN:
+            case NGCC_TEST_DSA_SIG:
+                break;
+            case NGCC_TEST_DSA_VERIFY:
+                kat_rc = ngcc_dsa_verify_correctness_kat_file(api,
+                                                              opts->kat_path,
+                                                              &total,
+                                                              &passed,
+                                                              &failed);
                 break;
             case NGCC_TEST_KEM:
-                kat_rc = ngcc_kem_correctness_kat_file(api,
-                                                       opts->kat_path,
-                                                       &total,
-                                                       &passed,
-                                                       &failed);
+            case NGCC_TEST_KEM_KEYGEN:
+            case NGCC_TEST_KEM_ENCAP:
+            case NGCC_TEST_KEM_DECAP:
                 break;
             case NGCC_TEST_KEX:
                 kat_rc = ngcc_kex_correctness_kat_file(api,
@@ -96,10 +104,24 @@ static int run_correctness_for_test(const ngcc_api_t *api,
         case NGCC_TEST_HASH:
             rc = ngcc_hash_correctness(api, opts->digest_len_bits, opts->msg_len);
             break;
-        case NGCC_TEST_SIG:
-            rc = ngcc_sig_correctness(api, opts->msg_len);
+        case NGCC_TEST_DSA:
+            rc = ngcc_dsa_correctness(api, opts->msg_len);
+            break;
+        case NGCC_TEST_DSA_KEYGEN:
+            rc = ngcc_dsa_keygen_correctness(api);
+            break;
+        case NGCC_TEST_DSA_SIG:
+            rc = ngcc_dsa_sig_correctness(api, opts->msg_len);
+            break;
+        case NGCC_TEST_DSA_VERIFY:
+            rc = ngcc_dsa_verify_correctness(api, opts->msg_len);
             break;
         case NGCC_TEST_KEM:
+            rc = ngcc_kem_correctness(api);
+            break;
+        case NGCC_TEST_KEM_KEYGEN:
+        case NGCC_TEST_KEM_ENCAP:
+        case NGCC_TEST_KEM_DECAP:
             rc = ngcc_kem_correctness(api);
             break;
         case NGCC_TEST_KEX:
@@ -134,11 +156,29 @@ static int run_performance_for_test(const ngcc_api_t *api,
         case NGCC_TEST_HASH:
             rc = ngcc_hash_performance(api, opts->digest_len_bits, opts->msg_len, &cfg, &result);
             break;
-        case NGCC_TEST_SIG:
-            rc = ngcc_sig_performance(api, opts->msg_len, &cfg, &result);
+        case NGCC_TEST_DSA:
+            rc = ngcc_dsa_performance(api, opts->msg_len, &cfg, &result);
+            break;
+        case NGCC_TEST_DSA_KEYGEN:
+            rc = ngcc_dsa_keygen_performance(api, &cfg, &result);
+            break;
+        case NGCC_TEST_DSA_SIG:
+            rc = ngcc_dsa_sig_performance(api, opts->msg_len, &cfg, &result);
+            break;
+        case NGCC_TEST_DSA_VERIFY:
+            rc = ngcc_dsa_verify_performance(api, opts->msg_len, &cfg, &result);
             break;
         case NGCC_TEST_KEM:
             rc = ngcc_kem_performance(api, &cfg, &result);
+            break;
+        case NGCC_TEST_KEM_KEYGEN:
+            rc = ngcc_kem_keygen_performance(api, &cfg, &result);
+            break;
+        case NGCC_TEST_KEM_ENCAP:
+            rc = ngcc_kem_encap_performance(api, &cfg, &result);
+            break;
+        case NGCC_TEST_KEM_DECAP:
+            rc = ngcc_kem_decap_performance(api, &cfg, &result);
             break;
         case NGCC_TEST_KEX:
             rc = ngcc_kex_performance(api, &cfg, &result);

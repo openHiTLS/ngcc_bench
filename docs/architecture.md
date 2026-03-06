@@ -13,12 +13,12 @@
 - `src/cycle_counter.c`：CPU 周期计数器（perf/TSC/ARMv8）
 - `src/stats_util.c`：Welford 在线统计（均值/方差/标准差）
 - `src/bench_hash.c`：Hash 正确性与性能
-- `src/bench_sig.c`：SIG 正确性与性能
-- `src/bench_kem.c`：KEM 正确性与性能
+- `src/bench_sig.c`：DSA 聚合测试与接口级细分测试（`dsa` / `dsa-keygen` / `dsa-sig` / `dsa-verify`）
+- `src/bench_kem.c`：KEM 正确性与性能（支持整体测试及 keygen/encap/decap 分离测试）
 - `src/bench_kex.c`：KEX 正确性与性能
 - `src/mem_stat.c`：RSS 当前值与峰值
 - `src/stability.c`：稳定性循环执行与信号中断处理
-- `src/kat_parser.c`：KAT 文件解析（用于 `hash/sig/kem/kex` correctness）
+- `src/kat_parser.c`：KAT 文件解析（用于 `hash/dsa-verify/kem/kex` correctness）
 
 头文件位于：`ngcc_bench/include/`（包含 `cli_types.h` 共享类型定义）
 
@@ -39,7 +39,11 @@
 
 `correctness`
 - Hash：默认对随机消息做重复摘要一致性检查；若传 `--kat` 则按向量文件执行 KAT 比对。
-- SIG：`keygen -> sign -> verify`。
+- DSA：
+  - `dsa`：`keygen -> sign -> verify`，作为默认聚合测试项统一呈现。
+  - `dsa-keygen`：验证 `sig_keygen()` 的长度与返回值契约。
+  - `dsa-sig`：`keygen -> sign -> verify`，主测 `sig_sign()` 输出是否可被验证。
+  - `dsa-verify`：`keygen -> sign -> verify`，并附加篡改消息后的拒绝检查。
 - KEM：`keygen -> enc -> dec`，比较共享密钥一致性。
 - KEX：模拟 A/B 三次消息交换并各自导出共享密钥，比较一致性。
 
@@ -47,10 +51,12 @@
 - 使用统一执行器 `ngcc_run_performance_op()`。
 - 预热策略：`max(10, iterations / 100)`。
 - 指标：`elapsed_ms/total_ms`、`ops/s`、`bytes/s`、可选 `cycles/op`，以及 `min/mean/median/max/stddev/CV`（time/cycles）。
+- DSA 支持聚合测试 `--test dsa`，并保留 `dsa-keygen` / `dsa-sig` / `dsa-verify` 细分性能测试。
+- KEM 支持聚合测试 `--test kem`，并保留 `kem-keygen` / `kem-encap` / `kem-decap` 细分性能测试。
 
 `memory`
-- `baseline_bytes`：执行 correctness 前读取当前 RSS。
-- `peak_bytes`：通过 `getrusage(RUSAGE_SELF).ru_maxrss` 读取进程峰值 RSS。
+- `static_mem`：读取算法库的 `text/data/bss/rodata` 段大小。
+- `heap_baseline_bytes` / `heap_peak_bytes`：围绕 correctness 执行采集堆口径动态内存。
 - 单位统一为字节（bytes）。
 
 `stability`
@@ -85,14 +91,15 @@ cycle 统计优先级：
 - 内存指标是进程级口径，不是每个算法独立进程隔离口径。
 - JSON 报告为可选功能，需通过 `--json-out` 显式启用。
 - JSON 结构定义：`docs/json_schema_v3.json`（配套说明：`docs/json_schema.md`）。
-- `--kat` 可用于 `hash/sig/kem/kex` 的 correctness；若某算法无可用向量，会回退到运行时回归检查。
+- `--kat` 可用于 `hash/dsa-verify/kem/kex` 的 correctness；若某算法无可用向量，会回退到运行时回归检查。
 
 ## 6. 测试
 
-- 已接入 CTest：`ngcc_cli_regression` + `ngcc_unit_tests`
-- CLI 回归测试脚本：`tests/run_cli_regression.sh`
-- 单元测试：`tests/test_unit.c`（16 个测试覆盖 stats/cli_parser/timespec）
-- mock 动态库源码：`tests/mock/mock_ngcc.c`、`tests/mock/mock_hash_only.c`
-- 稳定性专项脚本：`tests/run_stability_profile.sh`
+- 已接入 CTest：`ngcc_cli_regression`、`ngcc_mock_mlkem`、`ngcc_mock_mldsa`、`ngcc_mock_mlkex`、`ngcc_unit_tests`
+- CLI 回归测试程序：`tests/test_cli_regression.c`
+- 单元测试：`tests/test_unit.c`（21 个测试覆盖 stats/cli_parser/timespec，含 dsa-keygen/dsa-sig/dsa-verify 与 kem-keygen/kem-encap/kem-decap 解析）
+- mock 动态库源码：`tests/mock/mock_ngcc.c`、`tests/mock/mock_hash_only.c`、`tests/mock/mock_mlkem.c`、`tests/mock/mock_mldsa.c`、`tests/mock/mock_mlkex.c`
+- mock 回归测试程序：`tests/test_mock_mlkem.c`、`tests/test_mock_mldsa.c`、`tests/test_mock_mlkex.c`
+- 稳定性专项程序：`tests/ngcc_stability_profile.c`
 - 稳定性基线对比脚本：`tests/compare_stability_reports.py`
 - 稳定性 CI 说明：`docs/stability_ci.md`

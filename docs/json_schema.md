@@ -3,6 +3,8 @@
 当前报告版本：`schema_version = 3`。  
 机器可读 schema 文件：`docs/json_schema_v3.json`。
 
+当前 `tests` 节点包含顶层聚合项 `hash`、`dsa`、`kem`、`kex`，以及保留的细分项 `dsa-keygen`、`dsa-sig`、`dsa-verify`、`kem-keygen`、`kem-encap`、`kem-decap`。
+
 ## 兼容策略
 
 - 小版本兼容：在 `schema_version=3` 下允许新增字段，但不应破坏既有字段语义。

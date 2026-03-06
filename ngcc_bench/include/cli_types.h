@@ -9,13 +9,19 @@
 #include "stability.h"
 
 /* ── Test mask ─────────────────────────────────────────────────── */
-#define TEST_MASK_HASH (1U << 0)
-#define TEST_MASK_SIG  (1U << 1)
-#define TEST_MASK_KEM  (1U << 2)
-#define TEST_MASK_KEX  (1U << 3)
-#define TEST_MASK_ALL  (TEST_MASK_HASH | TEST_MASK_SIG | TEST_MASK_KEM | TEST_MASK_KEX)
+#define TEST_MASK_HASH        (1U << 0)
+#define TEST_MASK_DSA         (1U << 1)
+#define TEST_MASK_DSA_KEYGEN  (1U << 2)
+#define TEST_MASK_DSA_SIG     (1U << 3)
+#define TEST_MASK_DSA_VERIFY  (1U << 4)
+#define TEST_MASK_KEM         (1U << 5)
+#define TEST_MASK_KEM_KEYGEN  (1U << 6)
+#define TEST_MASK_KEM_ENCAP   (1U << 7)
+#define TEST_MASK_KEM_DECAP   (1U << 8)
+#define TEST_MASK_KEX         (1U << 9)
+#define TEST_MASK_ALL  (TEST_MASK_HASH | TEST_MASK_DSA | TEST_MASK_KEM | TEST_MASK_KEX)
 
-#define NGCC_NUM_TESTS     4
+#define NGCC_NUM_TESTS     10
 #define NGCC_PATH_BUF_SIZE 1024
 
 /* ── Mode mask ─────────────────────────────────────────────────── */

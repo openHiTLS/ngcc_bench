@@ -51,9 +51,19 @@ static int run_correctness_once(const ngcc_api_t *api,
     switch (test_kind) {
         case NGCC_TEST_HASH:
             return ngcc_hash_correctness(api, digest_len_bits, msg_len);
-        case NGCC_TEST_SIG:
-            return ngcc_sig_correctness(api, msg_len);
+        case NGCC_TEST_DSA:
+            return ngcc_dsa_correctness(api, msg_len);
+        case NGCC_TEST_DSA_KEYGEN:
+            return ngcc_dsa_keygen_correctness(api);
+        case NGCC_TEST_DSA_SIG:
+            return ngcc_dsa_sig_correctness(api, msg_len);
+        case NGCC_TEST_DSA_VERIFY:
+            return ngcc_dsa_verify_correctness(api, msg_len);
         case NGCC_TEST_KEM:
+            return ngcc_kem_correctness(api);
+        case NGCC_TEST_KEM_KEYGEN:
+        case NGCC_TEST_KEM_ENCAP:
+        case NGCC_TEST_KEM_DECAP:
             return ngcc_kem_correctness(api);
         case NGCC_TEST_KEX:
             return ngcc_kex_correctness(api);
@@ -71,9 +81,19 @@ static unsigned long long throughput_bytes_per_case(const ngcc_api_t *api,
 
     switch (test_kind) {
         case NGCC_TEST_HASH:
-        case NGCC_TEST_SIG:
+            return (unsigned long long) msg_len;
+        case NGCC_TEST_DSA:
+            return (unsigned long long) msg_len;
+        case NGCC_TEST_DSA_KEYGEN:
+            return api->sig_get_pk_len_bytes() + api->sig_get_sk_len_bytes();
+        case NGCC_TEST_DSA_SIG:
+        case NGCC_TEST_DSA_VERIFY:
             return (unsigned long long) msg_len;
         case NGCC_TEST_KEM:
+            return api->kem_get_ct_len_bytes();
+        case NGCC_TEST_KEM_KEYGEN:
+        case NGCC_TEST_KEM_ENCAP:
+        case NGCC_TEST_KEM_DECAP:
             return api->kem_get_ct_len_bytes();
         case NGCC_TEST_KEX:
             return api->kex_get_total_msg_len_bytes();

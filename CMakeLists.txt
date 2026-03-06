@@ -162,10 +162,74 @@ target_link_libraries(ngcc_bench dl m)
 target_compile_options(ngcc_bench PRIVATE -Wall -Wextra -Wpedantic)
 target_compile_definitions(ngcc_bench PRIVATE NGCC_VERSION="${PROJECT_VERSION}")
 
+add_library(ngcc_test_support STATIC
+    tests/test_support.c
+)
+target_include_directories(ngcc_test_support PRIVATE
+    ${CMAKE_SOURCE_DIR}/tests
+)
+target_compile_options(ngcc_test_support PRIVATE -Wall -Wextra -Wpedantic)
+
+add_library(mock_ngcc SHARED tests/mock/mock_ngcc.c)
+add_library(mock_hash_only SHARED tests/mock/mock_hash_only.c)
+add_library(mock_mlkem SHARED tests/mock/mock_mlkem.c)
+add_library(mock_mldsa SHARED tests/mock/mock_mldsa.c)
+add_library(mock_mlkex SHARED tests/mock/mock_mlkex.c)
+foreach(MOCK_TARGET mock_ngcc mock_hash_only mock_mlkem mock_mldsa mock_mlkex)
+    target_compile_options(${MOCK_TARGET} PRIVATE -Wall -Wextra -Wpedantic)
+    set_target_properties(${MOCK_TARGET} PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests/mock"
+    )
+endforeach()
+
+add_executable(ngcc_cli_regression_test tests/test_cli_regression.c)
+target_link_libraries(ngcc_cli_regression_test PRIVATE ngcc_test_support)
+target_compile_options(ngcc_cli_regression_test PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(ngcc_mock_mlkem_test tests/test_mock_mlkem.c)
+target_link_libraries(ngcc_mock_mlkem_test PRIVATE ngcc_test_support)
+target_compile_options(ngcc_mock_mlkem_test PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(ngcc_mock_mldsa_test tests/test_mock_mldsa.c)
+target_link_libraries(ngcc_mock_mldsa_test PRIVATE ngcc_test_support)
+target_compile_options(ngcc_mock_mldsa_test PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(ngcc_mock_mlkex_test tests/test_mock_mlkex.c)
+target_link_libraries(ngcc_mock_mlkex_test PRIVATE ngcc_test_support)
+target_compile_options(ngcc_mock_mlkex_test PRIVATE -Wall -Wextra -Wpedantic)
+
+add_executable(ngcc_stability_profile tests/ngcc_stability_profile.c)
+target_link_libraries(ngcc_stability_profile PRIVATE ngcc_test_support)
+target_compile_options(ngcc_stability_profile PRIVATE -Wall -Wextra -Wpedantic)
+target_compile_definitions(ngcc_stability_profile PRIVATE
+    NGCC_DEFAULT_MOCK_LIB="$<TARGET_FILE:mock_ngcc>"
+)
+
 enable_testing()
 add_test(
     NAME ngcc_cli_regression
-    COMMAND bash ${CMAKE_SOURCE_DIR}/tests/run_cli_regression.sh $<TARGET_FILE:ngcc_bench>
+    COMMAND ngcc_cli_regression_test
+            $<TARGET_FILE:ngcc_bench>
+            $<TARGET_FILE:mock_ngcc>
+            $<TARGET_FILE:mock_hash_only>
+)
+add_test(
+    NAME ngcc_mock_mlkem
+    COMMAND ngcc_mock_mlkem_test
+            $<TARGET_FILE:ngcc_bench>
+            $<TARGET_FILE:mock_mlkem>
+)
+add_test(
+    NAME ngcc_mock_mldsa
+    COMMAND ngcc_mock_mldsa_test
+            $<TARGET_FILE:ngcc_bench>
+            $<TARGET_FILE:mock_mldsa>
+)
+add_test(
+    NAME ngcc_mock_mlkex
+    COMMAND ngcc_mock_mlkex_test
+            $<TARGET_FILE:ngcc_bench>
+            $<TARGET_FILE:mock_mlkex>
 )
 
 # ── Unit tests ────────────────────────────────────────────────────
