@@ -94,11 +94,13 @@ int ngcc_load_library(const char *lib_path, unsigned int test_mask,
         ngcc_unload_library(out_lib);
         return -1;
     }
-    if ((test_mask & TEST_MASK_SIG) && load_sig_symbols(handle, api) != 0) {
+    if ((test_mask & (TEST_MASK_DSA | TEST_MASK_DSA_KEYGEN | TEST_MASK_DSA_SIG | TEST_MASK_DSA_VERIFY)) &&
+        load_sig_symbols(handle, api) != 0) {
         ngcc_unload_library(out_lib);
         return -1;
     }
-    if ((test_mask & TEST_MASK_KEM) && load_kem_symbols(handle, api) != 0) {
+    if ((test_mask & (TEST_MASK_KEM | TEST_MASK_KEM_KEYGEN | TEST_MASK_KEM_ENCAP | TEST_MASK_KEM_DECAP)) &&
+        load_kem_symbols(handle, api) != 0) {
         ngcc_unload_library(out_lib);
         return -1;
     }

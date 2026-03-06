@@ -8,7 +8,7 @@
 ## 本地执行
 
 ```bash
-./tests/run_stability_profile.sh \
+./build/ngcc_stability_profile \
   --benchmark ./build/ngcc_bench \
   --profile quick \
   --output-dir reports/stability
@@ -17,8 +17,7 @@
 参数说明：
 
 - `--profile quick|soak|nightly`
-- `--lib /path/to/lib.so`（不传则自动构建并使用 mock so）
-- `--taskset-cpu N`（可选，绑核）
+- `--lib /path/to/lib.so`（不传则默认使用 CMake 构建的 `mock_ngcc`）
 - `--allow-unstable`（可选，允许命令非 0 继续）
 
 ## 基线对比

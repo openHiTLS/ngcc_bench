@@ -77,7 +77,8 @@ def main() -> int:
 
     tests = require_key(report, "tests")
     statuses = {"PASS", "FAIL", "STOPPED", "SKIPPED"}
-    for name in ("hash", "sig", "kem", "kex"):
+    for name in ("hash", "dsa", "dsa-keygen", "dsa-sig", "dsa-verify", "kem", "kex",
+                 "kem-keygen", "kem-encap", "kem-decap"):
         t = require_key(tests, name)
         expect(isinstance(require_key(t, "selected"), bool), f"tests.{name}.selected must be bool")
         for k in ("correctness", "performance", "stability"):
@@ -88,8 +89,11 @@ def main() -> int:
 
     mem = require_key(report, "memory")
     expect(require_key(mem, "status") in statuses, "memory.status invalid")
-    expect(isinstance(require_key(mem, "baseline_bytes"), int), "memory.baseline_bytes must be integer")
-    expect(isinstance(require_key(mem, "peak_bytes"), int), "memory.peak_bytes must be integer")
+    static_mem = require_key(mem, "static_mem")
+    for k in ("text_bytes", "data_bytes", "bss_bytes", "rodata_bytes", "total_bytes"):
+        expect(isinstance(require_key(static_mem, k), int), f"memory.static_mem.{k} must be integer")
+    expect(isinstance(require_key(mem, "heap_baseline_bytes"), int), "memory.heap_baseline_bytes must be integer")
+    expect(isinstance(require_key(mem, "heap_peak_bytes"), int), "memory.heap_peak_bytes must be integer")
 
     overall = require_key(report, "overall")
     expect(require_key(overall, "status") in ("PASS", "FAIL"), "overall.status invalid")

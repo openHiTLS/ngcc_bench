@@ -16,20 +16,20 @@
 ## 2. 已实现且一致
 
 - 动态库加载：`dlopen/dlsym` 全符号绑定，缺符号即失败。
-- 四类算法测试：`hash/sig/kem/kex`。
+- 测试目标：顶层聚合为 `hash/dsa/kem/kex`，并保留 `dsa-keygen/dsa-sig/dsa-verify/kem-keygen/kem-encap/kem-decap` 细分测试。
 - 四类模式：`correctness/performance/memory/stability`。
 - 性能回退策略：优先 `perf_event_open`，`x86_64` 回退 `rdtsc`，`ARMv8` 回退 `cntvct_el0`，不可用时仅时间指标。
 - 稳定性测试：支持时长上限、case 上限、`SIGINT/SIGTERM` 优雅中断。
 - 内存指标：`baseline RSS + peak RSS`（字节）。
 - 交互式入口：无参数运行可进入菜单配置执行。
-- KAT correctness：已支持 `hash/sig/kem/kex`（`--kat`）。
+- KAT correctness：已支持 `hash/dsa-verify/kem/kex`（`--kat`）。
 - 性能统计：已输出 min/mean/median/max/stddev/CV，并补充 `bytes/s` 与总时间。
 
 ## 3. 本次补充/修正（已落地）
 
 - 新增 `--stability-max-cases`，把稳定性 case 上限从“内部固定常量”改为“CLI 可配置（默认 3000）”。
 - 新增 `--json-out PATH`，可导出本次执行的 JSON 报告（含参数、各算法状态、性能/稳定性指标、内存结果、整体状态）。
-- 新增 `--kat FILE`，`hash/sig/kem/kex` correctness 支持向量文件（无匹配向量时回退随机 correctness）。
+- 新增 `--kat FILE`，`hash/dsa-verify/kem/kex` correctness 支持向量文件（无匹配向量时回退随机 correctness）。
 - 新增交互式菜单入口（无参数运行）。
 - 性能输出新增分布统计字段（time/cycles）。
 - 新增稳定性阈值可配置参数（`stable-*`/`warning-*`），并在 `validate_options` 中校验 `warning >= stable`。
@@ -37,9 +37,10 @@
 - JSON 报告扩展到 `schema_version=3`，`options.stability_thresholds` 记录阈值配置。
 - 增加本地自动回归：`ctest` 下 `ngcc_cli_regression` 覆盖 CLI/KAT/阈值/JSON 关键路径。
 - 新增 JSON schema 治理文件：`docs/json_schema_v3.json` + `docs/json_schema.md`，回归中执行结构校验。
-- 新增稳定性专项与 CI 基础设施：`tests/run_stability_profile.sh`、`tests/compare_stability_reports.py`、`.github/workflows/stability-nightly.yml`。
+- 新增稳定性专项与 CI 基础设施：`tests/ngcc_stability_profile.c`、`tests/compare_stability_reports.py`、`.github/workflows/stability-nightly.yml`。
 - CI 分层策略已落地：`ci.yml` 跑 PR/Push quick 稳定性，`stability-nightly.yml` 跑定时 soak/nightly。
-- 刷新文档：`README.md`、`docs/cli.md`、`docs/architecture.md`。
+- 新增 KEM 分离性能测试：`--test kem-keygen`/`kem-encap`/`kem-decap` 可分别测试 keygen、encap、decap 单操作性能。
+- 刷新文档：`README.md`、`docs/cli.md`、`docs/architecture.md`、`design/final_design.md`。
 
 ## 4. 仍不一致（设计项未实现）
 

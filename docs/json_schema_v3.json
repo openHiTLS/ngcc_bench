@@ -79,21 +79,49 @@
     },
     "tests": {
       "type": "object",
-      "required": ["hash", "sig", "kem", "kex"],
+      "required": [
+        "hash",
+        "dsa",
+        "dsa-keygen",
+        "dsa-sig",
+        "dsa-verify",
+        "kem",
+        "kex",
+        "kem-keygen",
+        "kem-encap",
+        "kem-decap"
+      ],
       "properties": {
         "hash": { "$ref": "#/$defs/testResult" },
-        "sig": { "$ref": "#/$defs/testResult" },
+        "dsa": { "$ref": "#/$defs/testResult" },
+        "dsa-keygen": { "$ref": "#/$defs/testResult" },
+        "dsa-sig": { "$ref": "#/$defs/testResult" },
+        "dsa-verify": { "$ref": "#/$defs/testResult" },
         "kem": { "$ref": "#/$defs/testResult" },
-        "kex": { "$ref": "#/$defs/testResult" }
+        "kex": { "$ref": "#/$defs/testResult" },
+        "kem-keygen": { "$ref": "#/$defs/testResult" },
+        "kem-encap": { "$ref": "#/$defs/testResult" },
+        "kem-decap": { "$ref": "#/$defs/testResult" }
       }
     },
     "memory": {
       "type": "object",
-      "required": ["status", "baseline_bytes", "peak_bytes"],
+      "required": ["status", "static_mem", "heap_baseline_bytes", "heap_peak_bytes"],
       "properties": {
         "status": { "$ref": "#/$defs/runStatus" },
-        "baseline_bytes": { "type": "integer" },
-        "peak_bytes": { "type": "integer" }
+        "static_mem": {
+          "type": "object",
+          "required": ["text_bytes", "data_bytes", "bss_bytes", "rodata_bytes", "total_bytes"],
+          "properties": {
+            "text_bytes": { "type": "integer" },
+            "data_bytes": { "type": "integer" },
+            "bss_bytes": { "type": "integer" },
+            "rodata_bytes": { "type": "integer" },
+            "total_bytes": { "type": "integer" }
+          }
+        },
+        "heap_baseline_bytes": { "type": "integer" },
+        "heap_peak_bytes": { "type": "integer" }
       }
     },
     "overall": {

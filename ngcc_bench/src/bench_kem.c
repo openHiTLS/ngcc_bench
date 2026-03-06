@@ -243,8 +243,8 @@ int ngcc_kem_performance(const ngcc_api_t *api,
     ctx.ct_cap = api->kem_get_ct_len_bytes();
     ctx.ss_cap = api->kem_get_ss_len_bytes();
 
-    if (!ngcc_is_valid_len(ctx.pk_cap) || !ngcc_is_valid_len(ctx.sk_cap) || !ngcc_is_valid_len(ctx.ct_cap) ||
-        !ngcc_is_valid_len(ctx.ss_cap)) {
+    if (!ngcc_is_valid_len(ctx.pk_cap) || !ngcc_is_valid_len(ctx.sk_cap) ||
+        !ngcc_is_valid_len(ctx.ct_cap) || !ngcc_is_valid_len(ctx.ss_cap)) {
         return -1;
     }
 
@@ -271,5 +271,224 @@ cleanup:
     free(ctx.ct);
     free(ctx.ss_a);
     free(ctx.ss_b);
+    return rc;
+}
+
+/* ================================================================
+ *  Separate KEM Keygen / Encap / Decap performance functions
+ * ================================================================ */
+
+/* ── Keygen-only performance ─────────────────────────────────────── */
+
+static int kem_keygen_perf_op(void *ctx_ptr) {
+    kem_perf_ctx_t *ctx = (kem_perf_ctx_t *) ctx_ptr;
+    unsigned long long pk_len = ctx->pk_cap;
+    unsigned long long sk_len = ctx->sk_cap;
+    return ctx->api->kem_keygen(ctx->pk, &pk_len, ctx->sk, &sk_len);
+}
+
+int ngcc_kem_keygen_performance(const ngcc_api_t *api,
+                                const ngcc_perf_config_t *cfg,
+                                ngcc_perf_result_t *out_result) {
+    kem_perf_ctx_t ctx;
+    ngcc_perf_config_t local_cfg;
+    int rc = -1;
+
+    if (api == NULL || cfg == NULL || out_result == NULL) {
+        return -1;
+    }
+
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.api = api;
+    ctx.pk_cap = api->kem_get_pk_len_bytes();
+    ctx.sk_cap = api->kem_get_sk_len_bytes();
+
+    if (!ngcc_is_valid_len(ctx.pk_cap) || !ngcc_is_valid_len(ctx.sk_cap)) {
+        return -1;
+    }
+
+    ctx.pk = (unsigned char *) malloc((size_t) ctx.pk_cap);
+    ctx.sk = (unsigned char *) malloc((size_t) ctx.sk_cap);
+    if (ctx.pk == NULL || ctx.sk == NULL) {
+        goto cleanup_keygen;
+    }
+
+    local_cfg = *cfg;
+    local_cfg.bytes_per_op = ctx.pk_cap;
+    if (ngcc_run_performance_op(&local_cfg, kem_keygen_perf_op, &ctx, out_result) != 0) {
+        goto cleanup_keygen;
+    }
+
+    rc = 0;
+
+cleanup_keygen:
+    free(ctx.pk);
+    free(ctx.sk);
+    return rc;
+}
+
+/* ── Encap-only performance ──────────────────────────────────────── */
+
+typedef struct {
+    const ngcc_api_t *api;
+    unsigned char *pk;
+    unsigned char *ct;
+    unsigned char *ss;
+    unsigned long long pk_len;
+    unsigned long long ct_cap;
+    unsigned long long ss_cap;
+} kem_encap_perf_ctx_t;
+
+static int kem_encap_perf_op(void *ctx_ptr) {
+    kem_encap_perf_ctx_t *ctx = (kem_encap_perf_ctx_t *) ctx_ptr;
+    unsigned long long ss_len = ctx->ss_cap;
+    unsigned long long ct_len = ctx->ct_cap;
+    return ctx->api->kem_enc(ctx->pk, ctx->pk_len, ctx->ss, &ss_len, ctx->ct, &ct_len);
+}
+
+int ngcc_kem_encap_performance(const ngcc_api_t *api,
+                                const ngcc_perf_config_t *cfg,
+                                ngcc_perf_result_t *out_result) {
+    kem_encap_perf_ctx_t ctx;
+    ngcc_perf_config_t local_cfg;
+    unsigned char *sk = NULL;
+    unsigned long long pk_cap, sk_cap;
+    int rc = -1;
+
+    if (api == NULL || cfg == NULL || out_result == NULL) {
+        return -1;
+    }
+
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.api = api;
+    pk_cap = api->kem_get_pk_len_bytes();
+    sk_cap = api->kem_get_sk_len_bytes();
+    ctx.ct_cap = api->kem_get_ct_len_bytes();
+    ctx.ss_cap = api->kem_get_ss_len_bytes();
+
+    if (!ngcc_is_valid_len(pk_cap) || !ngcc_is_valid_len(sk_cap) ||
+        !ngcc_is_valid_len(ctx.ct_cap) || !ngcc_is_valid_len(ctx.ss_cap)) {
+        return -1;
+    }
+
+    ctx.pk = (unsigned char *) malloc((size_t) pk_cap);
+    sk = (unsigned char *) malloc((size_t) sk_cap);
+    ctx.ct = (unsigned char *) malloc((size_t) ctx.ct_cap);
+    ctx.ss = (unsigned char *) malloc((size_t) ctx.ss_cap);
+    if (ctx.pk == NULL || sk == NULL || ctx.ct == NULL || ctx.ss == NULL) {
+        goto cleanup_encap;
+    }
+
+    /* keygen once as setup */
+    {
+        unsigned long long pk_len = pk_cap;
+        unsigned long long sk_len = sk_cap;
+        if (api->kem_keygen(ctx.pk, &pk_len, sk, &sk_len) != 0) {
+            goto cleanup_encap;
+        }
+        ctx.pk_len = pk_len;
+    }
+
+    local_cfg = *cfg;
+    local_cfg.bytes_per_op = ctx.ct_cap;
+    if (ngcc_run_performance_op(&local_cfg, kem_encap_perf_op, &ctx, out_result) != 0) {
+        goto cleanup_encap;
+    }
+
+    rc = 0;
+
+cleanup_encap:
+    free(ctx.pk);
+    free(sk);
+    free(ctx.ct);
+    free(ctx.ss);
+    return rc;
+}
+
+/* ── Decap-only performance ──────────────────────────────────────── */
+
+typedef struct {
+    const ngcc_api_t *api;
+    unsigned char *sk;
+    unsigned char *ct;
+    unsigned char *ss;
+    unsigned long long sk_len;
+    unsigned long long ct_len;
+    unsigned long long ss_cap;
+} kem_decap_perf_ctx_t;
+
+static int kem_decap_perf_op(void *ctx_ptr) {
+    kem_decap_perf_ctx_t *ctx = (kem_decap_perf_ctx_t *) ctx_ptr;
+    unsigned long long ss_len = ctx->ss_cap;
+    return ctx->api->kem_dec(ctx->sk, ctx->sk_len, ctx->ct, ctx->ct_len, ctx->ss, &ss_len);
+}
+
+int ngcc_kem_decap_performance(const ngcc_api_t *api,
+                                const ngcc_perf_config_t *cfg,
+                                ngcc_perf_result_t *out_result) {
+    kem_decap_perf_ctx_t ctx;
+    ngcc_perf_config_t local_cfg;
+    unsigned char *pk = NULL;
+    unsigned char *ss_enc = NULL;
+    unsigned long long pk_cap, ss_cap;
+    int rc = -1;
+
+    if (api == NULL || cfg == NULL || out_result == NULL) {
+        return -1;
+    }
+
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.api = api;
+    pk_cap = api->kem_get_pk_len_bytes();
+    ctx.ss_cap = api->kem_get_ss_len_bytes();
+    ss_cap = ctx.ss_cap;
+
+    unsigned long long sk_cap = api->kem_get_sk_len_bytes();
+    unsigned long long ct_cap = api->kem_get_ct_len_bytes();
+
+    if (!ngcc_is_valid_len(pk_cap) || !ngcc_is_valid_len(sk_cap) ||
+        !ngcc_is_valid_len(ct_cap) || !ngcc_is_valid_len(ss_cap)) {
+        return -1;
+    }
+
+    pk = (unsigned char *) malloc((size_t) pk_cap);
+    ctx.sk = (unsigned char *) malloc((size_t) sk_cap);
+    ctx.ct = (unsigned char *) malloc((size_t) ct_cap);
+    ctx.ss = (unsigned char *) malloc((size_t) ss_cap);
+    ss_enc = (unsigned char *) malloc((size_t) ss_cap);
+    if (pk == NULL || ctx.sk == NULL || ctx.ct == NULL || ctx.ss == NULL || ss_enc == NULL) {
+        goto cleanup_decap;
+    }
+
+    /* keygen + encap once as setup */
+    {
+        unsigned long long pk_len = pk_cap;
+        unsigned long long sk_len_out = sk_cap;
+        unsigned long long ss_len = ss_cap;
+        unsigned long long ct_len = ct_cap;
+        if (api->kem_keygen(pk, &pk_len, ctx.sk, &sk_len_out) != 0) {
+            goto cleanup_decap;
+        }
+        ctx.sk_len = sk_len_out;
+        if (api->kem_enc(pk, pk_len, ss_enc, &ss_len, ctx.ct, &ct_len) != 0) {
+            goto cleanup_decap;
+        }
+        ctx.ct_len = ct_len;
+    }
+
+    local_cfg = *cfg;
+    local_cfg.bytes_per_op = ss_cap;
+    if (ngcc_run_performance_op(&local_cfg, kem_decap_perf_op, &ctx, out_result) != 0) {
+        goto cleanup_decap;
+    }
+
+    rc = 0;
+
+cleanup_decap:
+    free(pk);
+    free(ctx.sk);
+    free(ctx.ct);
+    free(ctx.ss);
+    free(ss_enc);
     return rc;
 }
