@@ -6,7 +6,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(__linux__)
 #include <sys/random.h>
+#endif
 #include <time.h>
 #include <unistd.h>
 
@@ -49,7 +51,14 @@ int ngcc_fill_random(unsigned char *buf, size_t len) {
     if (buf == NULL) {
         return -1;
     }
+    if (len == 0U) {
+        return 0;
+    }
 
+#if defined(__APPLE__)
+    arc4random_buf(buf, len);
+    return 0;
+#elif defined(__linux__)
     while (offset < len) {
         ssize_t got = getrandom(buf + offset, len - offset, 0);
         if (got > 0) {
@@ -65,6 +74,7 @@ int ngcc_fill_random(unsigned char *buf, size_t len) {
     if (offset == len) {
         return 0;
     }
+#endif
 
     {
         int fd = open("/dev/urandom", O_RDONLY);
@@ -161,7 +171,7 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
         }
     }
 
-    if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_total_start) != 0) {
+    if (ngcc_monotonic_clock_gettime(&ts_total_start) != 0) {
         goto cleanup;
     }
 
@@ -171,7 +181,7 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
         unsigned long long iter_cycles;
         double iter_time_ms;
 
-        if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_iter_start) != 0) {
+        if (ngcc_monotonic_clock_gettime(&ts_iter_start) != 0) {
             goto cleanup;
         }
 
@@ -183,7 +193,7 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
 
         iter_cycles = cycle_counter_end(&counter, iter_cycle_start);
 
-        if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_iter_end) != 0) {
+        if (ngcc_monotonic_clock_gettime(&ts_iter_end) != 0) {
             goto cleanup;
         }
 
@@ -202,7 +212,7 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
         }
     }
 
-    if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_total_end) != 0) {
+    if (ngcc_monotonic_clock_gettime(&ts_total_end) != 0) {
         goto cleanup;
     }
 

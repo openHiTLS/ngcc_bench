@@ -44,7 +44,7 @@
   - `dsa-keygen`：验证 `sig_keygen()` 的长度与返回值契约。
   - `dsa-sig`：`keygen -> sign -> verify`，主测 `sig_sign()` 输出是否可被验证。
   - `dsa-verify`：`keygen -> sign -> verify`，并附加篡改消息后的拒绝检查。
-- KEM：`keygen -> enc -> dec`，比较共享密钥一致性。
+- KEM：默认执行 `keygen -> enc -> dec` 比较共享密钥一致性；若传 `--kat` 则按向量文件执行 decap/shared-secret 比对。
 - KEX：模拟 A/B 三次消息交换并各自导出共享密钥，比较一致性。
 
 `performance`
@@ -88,7 +88,7 @@ cycle 统计优先级：
 ## 5. 关键限制
 
 - 加载器按 `--test` 按需加载对应符号组，`.so` 只需导出实际被测的算法符号。
-- 内存指标是进程级口径，不是每个算法独立进程隔离口径。
+- 内存指标是进程级口径，不是每个算法独立进程隔离口径；当前 Linux 路径最完整，非 Linux 平台上部分字段可能不可用。
 - JSON 报告为可选功能，需通过 `--json-out` 显式启用。
 - JSON 结构定义：`docs/json_schema_v4.json`（配套说明：`docs/json_schema.md`）。
 - `--kat` 可用于 `hash/dsa-verify/kem/kex` 的 correctness；若某算法无可用向量，会回退到运行时回归检查。

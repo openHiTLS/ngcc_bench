@@ -83,7 +83,7 @@ cmake -S . -B build -DIMPL_TYPE=all
 - `--stability-max-cases N`：stability 最大 case，默认 `3000`
 - `--stability-sample-ms MS`：stability 采样窗口，默认 `1.0`
 - `--cycles on|off`：是否尝试输出 cycles，默认 `on`
-- `--kat FILE`：仅 correctness 模式有效；支持 `hash`、`dsa-verify`、`kex`
+- `--kat FILE`：仅 correctness 模式有效；支持 `hash`、`dsa-verify`、`kem`、`kex`
 - `--json-out PATH`：输出 JSON 报告
 
 ## 输出与限制
@@ -92,6 +92,7 @@ cmake -S . -B build -DIMPL_TYPE=all
 - `stability` 输出 `STABLE` / `WARNING` / `UNSTABLE`，其中 `UNSTABLE` 会导致失败返回码
 - `dsa`、`kem` 聚合项默认不展开打印子步骤
 - 加载器按测试目标按需加载符号；未选中的算法符号可以不导出
+- `memory` 指标当前以 Linux 路径最完整；非 Linux 平台上部分字段可能返回 `unavailable` 或 `0`
 - KAT 解析支持 `#` / `;` / `//` 注释、`0x` 前缀和常见字段别名
 
 ## 测试

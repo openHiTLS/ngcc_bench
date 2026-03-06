@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define CHECK(cond, fmt, ...)                                                     \
     do {                                                                          \
@@ -51,6 +52,7 @@ int main(int argc, char **argv) {
     char tmp_dir[] = "/tmp/ngcc_cli_regression.XXXXXX";
     char kat_path[PATH_MAX];
     char json_path[PATH_MAX];
+    char spaced_lib_path[PATH_MAX];
     char baseline_status_path[PATH_MAX];
     char candidate_status_path[PATH_MAX];
     char candidate_perf_path[PATH_MAX];
@@ -126,6 +128,8 @@ int main(int argc, char **argv) {
           "kat path too long");
     CHECK(snprintf(json_path, sizeof(json_path), "%s/report.json", tmp_dir) < (int) sizeof(json_path),
           "json path too long");
+    CHECK(snprintf(spaced_lib_path, sizeof(spaced_lib_path), "%s/mock libmock.so", tmp_dir) < (int) sizeof(spaced_lib_path),
+          "spaced lib path too long");
     CHECK(snprintf(baseline_status_path, sizeof(baseline_status_path), "%s/baseline_status.json", tmp_dir) < (int) sizeof(baseline_status_path),
           "baseline status path too long");
     CHECK(snprintf(candidate_status_path, sizeof(candidate_status_path), "%s/candidate_status.json", tmp_dir) < (int) sizeof(candidate_status_path),
@@ -133,6 +137,7 @@ int main(int argc, char **argv) {
     CHECK(snprintf(candidate_perf_path, sizeof(candidate_perf_path), "%s/candidate_perf.json", tmp_dir) < (int) sizeof(candidate_perf_path),
           "candidate perf path too long");
     CHECK(test_write_file(kat_path, kat_content) == 0, "failed to write kat file");
+    CHECK(symlink(argv[2], spaced_lib_path) == 0, "failed to create spaced lib symlink");
     CHECK(test_write_file(baseline_status_path, baseline_compare_json) == 0, "failed to write baseline compare json");
     CHECK(test_write_file(candidate_status_path, candidate_status_compare_json) == 0, "failed to write candidate status compare json");
     CHECK(test_write_file(candidate_perf_path, candidate_perf_compare_json) == 0, "failed to write candidate perf compare json");
@@ -145,7 +150,7 @@ int main(int argc, char **argv) {
         CHECK(run_and_expect(cmd, 0,
                              "[hash][correctness] PASS",
                              "[dsa][correctness] PASS",
-                             "[kem][correctness] PASS") == 0,
+                             "[kem][correctness] PASS total=1 passed=1 failed=0 source=kat") == 0,
               "correctness regression failed");
     }
 
@@ -160,6 +165,18 @@ int main(int argc, char **argv) {
                              "bytes/s=",
                              "bytes/op=") == 0,
               "performance regression failed");
+    }
+
+    {
+        char *const cmd[] = {
+            argv[1], "--lib", spaced_lib_path, "--test", "hash", "--mode", "memory",
+            "--digest-len-bits", "8", NULL
+        };
+        CHECK(run_and_expect(cmd, 0,
+                             "[memory][static] text=",
+                             "[memory][dynamic]",
+                             "[hash][correctness] PASS") == 0,
+              "memory path regression failed");
     }
 
     {
@@ -217,6 +234,9 @@ int main(int argc, char **argv) {
     CHECK(test_file_contains(json_path, "\"stability_thresholds\""), "json missing thresholds");
     CHECK(test_file_contains(json_path, "\"throughput_mean_bytes\":"), "json missing throughput metric");
     CHECK(test_file_contains(json_path, "\"sample_count\":"), "json missing sample count");
+    CHECK(test_file_contains(json_path, "\"report_metadata\""), "json missing report metadata");
+    CHECK(test_file_contains(json_path, "\"environment\""), "json missing environment metadata");
+    CHECK(test_file_contains(json_path, "\"json_out_path\":"), "json missing output path metadata");
     CHECK(test_file_contains(json_path, "\"hash\""), "json missing hash node");
     CHECK(test_file_contains(json_path, "\"dsa\""), "json missing dsa node");
     CHECK(test_file_contains(json_path, "\"kem\""), "json missing kem node");

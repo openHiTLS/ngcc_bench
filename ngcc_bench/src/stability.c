@@ -7,10 +7,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "bench_hash.h"
-#include "bench_kem.h"
-#include "bench_kex.h"
-#include "bench_sig.h"
 #include "cycle_counter.h"
 #include "mem_stat.h"
 #include "stats_util.h"
@@ -42,64 +38,6 @@ static int install_signal_handlers(struct sigaction *old_int, struct sigaction *
 static void restore_signal_handlers(const struct sigaction *old_int, const struct sigaction *old_term) {
     sigaction(SIGINT, old_int, NULL);
     sigaction(SIGTERM, old_term, NULL);
-}
-
-static int run_correctness_once(const ngcc_api_t *api,
-                                ngcc_test_kind_t test_kind,
-                                int digest_len_bits,
-                                size_t msg_len) {
-    switch (test_kind) {
-        case NGCC_TEST_HASH:
-            return ngcc_hash_correctness(api, digest_len_bits, msg_len);
-        case NGCC_TEST_DSA:
-            return ngcc_dsa_correctness(api, msg_len);
-        case NGCC_TEST_DSA_KEYGEN:
-            return ngcc_dsa_keygen_correctness(api);
-        case NGCC_TEST_DSA_SIG:
-            return ngcc_dsa_sig_correctness(api, msg_len);
-        case NGCC_TEST_DSA_VERIFY:
-            return ngcc_dsa_verify_correctness(api, msg_len);
-        case NGCC_TEST_KEM:
-            return ngcc_kem_correctness(api);
-        case NGCC_TEST_KEM_KEYGEN:
-        case NGCC_TEST_KEM_ENCAP:
-        case NGCC_TEST_KEM_DECAP:
-            return ngcc_kem_correctness(api);
-        case NGCC_TEST_KEX:
-            return ngcc_kex_correctness(api);
-        default:
-            return -1;
-    }
-}
-
-static unsigned long long throughput_bytes_per_case(const ngcc_api_t *api,
-                                                    ngcc_test_kind_t test_kind,
-                                                    size_t msg_len) {
-    if (api == NULL) {
-        return 0;
-    }
-
-    switch (test_kind) {
-        case NGCC_TEST_HASH:
-            return (unsigned long long) msg_len;
-        case NGCC_TEST_DSA:
-            return (unsigned long long) msg_len;
-        case NGCC_TEST_DSA_KEYGEN:
-            return api->sig_get_pk_len_bytes() + api->sig_get_sk_len_bytes();
-        case NGCC_TEST_DSA_SIG:
-        case NGCC_TEST_DSA_VERIFY:
-            return (unsigned long long) msg_len;
-        case NGCC_TEST_KEM:
-            return api->kem_get_ct_len_bytes();
-        case NGCC_TEST_KEM_KEYGEN:
-        case NGCC_TEST_KEM_ENCAP:
-        case NGCC_TEST_KEM_DECAP:
-            return api->kem_get_ct_len_bytes();
-        case NGCC_TEST_KEX:
-            return api->kex_get_total_msg_len_bytes();
-        default:
-            return 0;
-    }
 }
 
 static void append_reason(char *dst, size_t cap, const char *reason) {
@@ -135,7 +73,8 @@ void ngcc_stability_thresholds_set_defaults(ngcc_stability_thresholds_t *out_thr
 }
 
 int ngcc_run_stability(const ngcc_api_t *api,
-                       ngcc_test_kind_t test_kind,
+                       ngcc_correctness_dispatch_fn correctness_fn,
+                       ngcc_bytes_per_case_fn bytes_per_case_fn,
                        int digest_len_bits,
                        size_t msg_len,
                        int cycles_enabled,
@@ -167,7 +106,7 @@ int ngcc_run_stability(const ngcc_api_t *api,
     ngcc_stability_thresholds_t effective_thresholds;
     unsigned long long bytes_per_case;
 
-    if (api == NULL || out_result == NULL || max_cases == 0 ||
+    if (api == NULL || correctness_fn == NULL || out_result == NULL || max_cases == 0 ||
         duration_hours <= 0.0 || sample_target_ms <= 0.0 || !isfinite(sample_target_ms)) {
         return -1;
     }
@@ -185,7 +124,7 @@ int ngcc_run_stability(const ngcc_api_t *api,
         return -1;
     }
 
-    if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_start) != 0) {
+    if (ngcc_monotonic_clock_gettime(&ts_start) != 0) {
         restore_signal_handlers(&old_int, &old_term);
         return -1;
     }
@@ -204,7 +143,7 @@ int ngcc_run_stability(const ngcc_api_t *api,
     stats_init(&throughput_bytes_stats);
     stats_init(&cycles_stats);
     stats_init(&time_stats);
-    bytes_per_case = throughput_bytes_per_case(api, test_kind, msg_len);
+    bytes_per_case = (bytes_per_case_fn != NULL) ? bytes_per_case_fn(api, msg_len) : 0;
     max_seconds = duration_hours * 3600.0;
 
     while (1) {
@@ -227,7 +166,7 @@ int ngcc_run_stability(const ngcc_api_t *api,
             break;
         }
 
-        if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_now) != 0) {
+        if (ngcc_monotonic_clock_gettime(&ts_now) != 0) {
             loop_failed = 1;
             break;
         }
@@ -238,14 +177,14 @@ int ngcc_run_stability(const ngcc_api_t *api,
             break;
         }
 
-        if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_batch_start) != 0) {
+        if (ngcc_monotonic_clock_gettime(&ts_batch_start) != 0) {
             loop_failed = 1;
             break;
         }
         batch_cycle_start = cycle_counter_begin(&counter);
 
         while (1) {
-            int case_rc = run_correctness_once(api, test_kind, digest_len_bits, msg_len);
+            int case_rc = correctness_fn(api, digest_len_bits, msg_len);
 
             total_executions++;
             if (case_rc != 0) {
@@ -261,7 +200,7 @@ int ngcc_run_stability(const ngcc_api_t *api,
                 break;
             }
 
-            if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_now) != 0) {
+            if (ngcc_monotonic_clock_gettime(&ts_now) != 0) {
                 loop_failed = 1;
                 batch_failed = 1;
                 break;
@@ -281,7 +220,7 @@ int ngcc_run_stability(const ngcc_api_t *api,
         }
 
         batch_cycles = cycle_counter_end(&counter, batch_cycle_start);
-        if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_batch_end) != 0) {
+        if (ngcc_monotonic_clock_gettime(&ts_batch_end) != 0) {
             loop_failed = 1;
             break;
         }
@@ -330,7 +269,7 @@ int ngcc_run_stability(const ngcc_api_t *api,
         }
     }
 
-    if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts_now) == 0) {
+    if (ngcc_monotonic_clock_gettime(&ts_now) == 0) {
         out_result->elapsed_seconds = (double) (ts_now.tv_sec - ts_start.tv_sec) +
                                       ((double) (ts_now.tv_nsec - ts_start.tv_nsec) / 1000000000.0);
     }

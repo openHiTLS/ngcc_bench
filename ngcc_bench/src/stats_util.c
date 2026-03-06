@@ -4,6 +4,24 @@
 #include <string.h>
 #include <time.h>
 
+int ngcc_monotonic_clock_gettime(struct timespec *ts) {
+    if (ts == NULL) {
+        return -1;
+    }
+
+#if defined(CLOCK_MONOTONIC_RAW)
+    if (clock_gettime(CLOCK_MONOTONIC_RAW, ts) == 0) {
+        return 0;
+    }
+#endif
+
+#if defined(CLOCK_MONOTONIC)
+    return clock_gettime(CLOCK_MONOTONIC, ts);
+#else
+    return -1;
+#endif
+}
+
 double timespec_ms_diff(const struct timespec *start, const struct timespec *end) {
     long sec = end->tv_sec - start->tv_sec;
     long nsec = end->tv_nsec - start->tv_nsec;

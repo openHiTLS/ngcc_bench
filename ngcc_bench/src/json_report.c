@@ -1,8 +1,15 @@
+#include <limits.h>
 #include <stdio.h>
+#include <sys/utsname.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "json_report.h"
+
+#ifndef NGCC_VERSION
+#define NGCC_VERSION "unknown"
+#endif
 
 /* ── JSON writer helpers ──────────────────────────────────────── */
 
@@ -86,6 +93,16 @@ static void jw_key_str(json_writer_t *w, const char *key, const char *val) {
     jw_write_escaped(w->fp, val);
 }
 
+static void jw_key_null(json_writer_t *w, const char *key);
+
+static void jw_key_optional_str(json_writer_t *w, const char *key, const char *val) {
+    if (val != NULL) {
+        jw_key_str(w, key, val);
+    } else {
+        jw_key_null(w, key);
+    }
+}
+
 static void jw_key_null(json_writer_t *w, const char *key) {
     jw_comma(w);
     jw_indent(w);
@@ -149,6 +166,53 @@ static const char *stability_status_to_text(const test_report_t *test) {
     return status_to_text(test->stability_status);
 }
 
+static void write_report_metadata(json_writer_t *w, const cli_options_t *opts) {
+    jw_begin_object(w, "report_metadata");
+    jw_key_str(w, "generator", "ngcc_bench");
+    jw_key_str(w, "generator_version", NGCC_VERSION);
+    jw_key_str(w, "json_out_path", opts->json_out_path);
+    jw_end_object(w);
+}
+
+static void write_environment_metadata(json_writer_t *w) {
+    char hostname[256];
+    char cwd[PATH_MAX];
+    struct utsname uts;
+    const char *hostname_value = NULL;
+    const char *cwd_value = NULL;
+    const char *sysname_value = NULL;
+    const char *release_value = NULL;
+    const char *version_value = NULL;
+    const char *machine_value = NULL;
+
+    memset(hostname, 0, sizeof(hostname));
+    memset(cwd, 0, sizeof(cwd));
+    memset(&uts, 0, sizeof(uts));
+
+    if (gethostname(hostname, sizeof(hostname)) == 0) {
+        hostname[sizeof(hostname) - 1U] = '\0';
+        hostname_value = hostname;
+    }
+    if (getcwd(cwd, sizeof(cwd)) != NULL) {
+        cwd_value = cwd;
+    }
+    if (uname(&uts) == 0) {
+        sysname_value = uts.sysname;
+        release_value = uts.release;
+        version_value = uts.version;
+        machine_value = uts.machine;
+    }
+
+    jw_begin_object(w, "environment");
+    jw_key_optional_str(w, "hostname", hostname_value);
+    jw_key_optional_str(w, "cwd", cwd_value);
+    jw_key_optional_str(w, "sysname", sysname_value);
+    jw_key_optional_str(w, "release", release_value);
+    jw_key_optional_str(w, "version", version_value);
+    jw_key_optional_str(w, "machine", machine_value);
+    jw_end_object(w);
+}
+
 /* ── Public API ────────────────────────────────────────────────── */
 
 int write_json_report(const cli_options_t *opts,
@@ -185,6 +249,8 @@ int write_json_report(const cli_options_t *opts,
     jw_key_int(&w, "schema_version", 4);
     jw_key_str(&w, "timestamp", timestamp);
     jw_key_str(&w, "library", opts->lib_path);
+    write_report_metadata(&w, opts);
+    write_environment_metadata(&w);
 
     /* options */
     jw_begin_object(&w, "options");

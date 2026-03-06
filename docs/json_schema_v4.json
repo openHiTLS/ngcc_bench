@@ -22,6 +22,26 @@
     "library": {
       "type": "string"
     },
+    "report_metadata": {
+      "type": "object",
+      "required": ["generator", "generator_version", "json_out_path"],
+      "properties": {
+        "generator": { "type": "string" },
+        "generator_version": { "type": "string" },
+        "json_out_path": { "type": "string" }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "properties": {
+        "hostname": { "type": ["string", "null"] },
+        "cwd": { "type": ["string", "null"] },
+        "sysname": { "type": ["string", "null"] },
+        "release": { "type": ["string", "null"] },
+        "version": { "type": ["string", "null"] },
+        "machine": { "type": ["string", "null"] }
+      }
+    },
     "options": {
       "type": "object",
       "required": [

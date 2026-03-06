@@ -4,6 +4,28 @@ project(ngcc_bench VERSION 1.0.0 LANGUAGES C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+set(NGCC_WARNING_FLAGS -Wall -Wextra -Wpedantic)
+set(NGCC_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/ngcc_bench/include")
+set(NGCC_TEST_DIR "${CMAKE_SOURCE_DIR}/tests")
+
+function(ngcc_apply_warnings target)
+    target_compile_options(${target} PRIVATE ${NGCC_WARNING_FLAGS})
+endfunction()
+
+function(ngcc_add_mock_library target source)
+    add_library(${target} SHARED ${source})
+    ngcc_apply_warnings(${target})
+    set_target_properties(${target} PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests/mock"
+    )
+endfunction()
+
+function(ngcc_add_test_support_program target source)
+    add_executable(${target} ${source})
+    target_link_libraries(${target} PRIVATE ngcc_test_support)
+    ngcc_apply_warnings(${target})
+endfunction()
+
 # ═══════════════════════════════════════════════════════════════════
 #  选手 .so 编译
 # ═══════════════════════════════════════════════════════════════════
@@ -73,50 +95,6 @@ foreach(CATEGORY ${ALGO_CATEGORIES})
 endforeach()
 
 # ═══════════════════════════════════════════════════════════════════
-#  测试框架编译
-# ═══════════════════════════════════════════════════════════════════
-set(TEST_SOURCES
-    tests/src/main.c
-    tests/src/algo_loader.c
-    tests/src/correctness_test.c
-    tests/src/kat_parser.c
-    tests/src/performance_test.c
-    tests/src/memory_test.c
-    tests/src/stability_test.c
-    tests/src/report.c
-)
-
-# 仅在源文件存在时才构建测试工具（初期开发可能还没有全部文件）
-set(EXISTING_TEST_SOURCES "")
-foreach(SRC ${TEST_SOURCES})
-    if(EXISTS "${CMAKE_SOURCE_DIR}/${SRC}")
-        list(APPEND EXISTING_TEST_SOURCES ${SRC})
-    endif()
-endforeach()
-
-if(EXISTING_TEST_SOURCES)
-    add_executable(ngcc_test_framework ${EXISTING_TEST_SOURCES})
-
-    target_include_directories(ngcc_test_framework PRIVATE
-        ${CMAKE_SOURCE_DIR}/tests/include
-        ${CMAKE_SOURCE_DIR}/tests/utils
-    )
-
-    # dl: dlopen/dlsym  m: math
-    target_link_libraries(ngcc_test_framework dl m)
-
-    # 传递路径宏，供运行时定位 code/ 和 reports/
-    target_compile_definitions(ngcc_test_framework PRIVATE
-        CODE_DIR="${CMAKE_SOURCE_DIR}/code"
-        REPORT_DIR="${CMAKE_SOURCE_DIR}/reports"
-    )
-
-    message(STATUS "  [测试工具] ngcc_test_framework <- tests/src/")
-else()
-    message(STATUS "  [跳过]   ngcc_test_framework (tests/src/ 下无源文件)")
-endif()
-
-# ═══════════════════════════════════════════════════════════════════
 #  NGCC Benchmark 主程序 (ngcc_bench/)
 # ═══════════════════════════════════════════════════════════════════
 
@@ -156,51 +134,32 @@ set(NGCC_BENCH_LIB_SOURCES
 
 add_executable(ngcc_bench ngcc_bench/src/main.c ${NGCC_BENCH_LIB_SOURCES})
 target_include_directories(ngcc_bench PRIVATE
-    ${CMAKE_SOURCE_DIR}/ngcc_bench/include
+    ${NGCC_INCLUDE_DIR}
 )
 target_link_libraries(ngcc_bench dl m)
-target_compile_options(ngcc_bench PRIVATE -Wall -Wextra -Wpedantic)
 target_compile_definitions(ngcc_bench PRIVATE NGCC_VERSION="${PROJECT_VERSION}")
+ngcc_apply_warnings(ngcc_bench)
 
 add_library(ngcc_test_support STATIC
     tests/test_support.c
 )
 target_include_directories(ngcc_test_support PRIVATE
-    ${CMAKE_SOURCE_DIR}/tests
+    ${NGCC_TEST_DIR}
 )
-target_compile_options(ngcc_test_support PRIVATE -Wall -Wextra -Wpedantic)
+ngcc_apply_warnings(ngcc_test_support)
 
-add_library(mock_ngcc SHARED tests/mock/mock_ngcc.c)
-add_library(mock_hash_only SHARED tests/mock/mock_hash_only.c)
-add_library(mock_mlkem SHARED tests/mock/mock_mlkem.c)
-add_library(mock_mldsa SHARED tests/mock/mock_mldsa.c)
-add_library(mock_mlkex SHARED tests/mock/mock_mlkex.c)
-foreach(MOCK_TARGET mock_ngcc mock_hash_only mock_mlkem mock_mldsa mock_mlkex)
-    target_compile_options(${MOCK_TARGET} PRIVATE -Wall -Wextra -Wpedantic)
-    set_target_properties(${MOCK_TARGET} PROPERTIES
-        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests/mock"
-    )
-endforeach()
+ngcc_add_mock_library(mock_ngcc tests/mock/mock_ngcc.c)
+ngcc_add_mock_library(mock_hash_only tests/mock/mock_hash_only.c)
+ngcc_add_mock_library(mock_mlkem tests/mock/mock_mlkem.c)
+ngcc_add_mock_library(mock_mldsa tests/mock/mock_mldsa.c)
+ngcc_add_mock_library(mock_mlkex tests/mock/mock_mlkex.c)
 
-add_executable(ngcc_cli_regression_test tests/test_cli_regression.c)
-target_link_libraries(ngcc_cli_regression_test PRIVATE ngcc_test_support)
-target_compile_options(ngcc_cli_regression_test PRIVATE -Wall -Wextra -Wpedantic)
+ngcc_add_test_support_program(ngcc_cli_regression_test tests/test_cli_regression.c)
+ngcc_add_test_support_program(ngcc_mock_mlkem_test tests/test_mock_mlkem.c)
+ngcc_add_test_support_program(ngcc_mock_mldsa_test tests/test_mock_mldsa.c)
+ngcc_add_test_support_program(ngcc_mock_mlkex_test tests/test_mock_mlkex.c)
+ngcc_add_test_support_program(ngcc_stability_profile tests/ngcc_stability_profile.c)
 
-add_executable(ngcc_mock_mlkem_test tests/test_mock_mlkem.c)
-target_link_libraries(ngcc_mock_mlkem_test PRIVATE ngcc_test_support)
-target_compile_options(ngcc_mock_mlkem_test PRIVATE -Wall -Wextra -Wpedantic)
-
-add_executable(ngcc_mock_mldsa_test tests/test_mock_mldsa.c)
-target_link_libraries(ngcc_mock_mldsa_test PRIVATE ngcc_test_support)
-target_compile_options(ngcc_mock_mldsa_test PRIVATE -Wall -Wextra -Wpedantic)
-
-add_executable(ngcc_mock_mlkex_test tests/test_mock_mlkex.c)
-target_link_libraries(ngcc_mock_mlkex_test PRIVATE ngcc_test_support)
-target_compile_options(ngcc_mock_mlkex_test PRIVATE -Wall -Wextra -Wpedantic)
-
-add_executable(ngcc_stability_profile tests/ngcc_stability_profile.c)
-target_link_libraries(ngcc_stability_profile PRIVATE ngcc_test_support)
-target_compile_options(ngcc_stability_profile PRIVATE -Wall -Wextra -Wpedantic)
 target_compile_definitions(ngcc_stability_profile PRIVATE
     NGCC_DEFAULT_MOCK_LIB="$<TARGET_FILE:mock_ngcc>"
 )
@@ -235,10 +194,14 @@ add_test(
 # ── Unit tests ────────────────────────────────────────────────────
 add_executable(ngcc_unit_tests tests/test_unit.c ${NGCC_BENCH_LIB_SOURCES})
 target_include_directories(ngcc_unit_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/ngcc_bench/include
+    ${NGCC_INCLUDE_DIR}
 )
 target_link_libraries(ngcc_unit_tests dl m)
-target_compile_options(ngcc_unit_tests PRIVATE -Wall -Wextra -Wpedantic)
+target_compile_definitions(ngcc_unit_tests PRIVATE
+    NGCC_UNIT_MOCK_NGCC="$<TARGET_FILE:mock_ngcc>"
+    NGCC_UNIT_MOCK_HASH_ONLY="$<TARGET_FILE:mock_hash_only>"
+)
+ngcc_apply_warnings(ngcc_unit_tests)
 
 add_test(NAME ngcc_unit_tests COMMAND ngcc_unit_tests)
 
