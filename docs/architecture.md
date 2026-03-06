@@ -61,7 +61,7 @@
 
 `stability`
 - 采用“批处理窗口采样”：在一个 `stability-sample-ms` 窗口内执行多次 correctness，再作为一个统计样本写入在线统计。
-- 每个样本统计吞吐、单次均摊耗时、可选周期、当前内存，并在线计算均值/标准差/CV。
+- 每个样本统计吞吐、单次均摊耗时、可选周期、当前内存，并在线计算均值/标准差/CV；报告中会记录 `sample_count` 以标识统计样本数。
 - 终止条件（任一满足即停）：
   - 运行时长达到 `duration-hours`
   - case 数达到 `stability-max-cases`（默认 `3000`）
@@ -90,7 +90,7 @@ cycle 统计优先级：
 - 加载器按 `--test` 按需加载对应符号组，`.so` 只需导出实际被测的算法符号。
 - 内存指标是进程级口径，不是每个算法独立进程隔离口径。
 - JSON 报告为可选功能，需通过 `--json-out` 显式启用。
-- JSON 结构定义：`docs/json_schema_v3.json`（配套说明：`docs/json_schema.md`）。
+- JSON 结构定义：`docs/json_schema_v4.json`（配套说明：`docs/json_schema.md`）。
 - `--kat` 可用于 `hash/dsa-verify/kem/kex` 的 correctness；若某算法无可用向量，会回退到运行时回归检查。
 
 ## 6. 测试

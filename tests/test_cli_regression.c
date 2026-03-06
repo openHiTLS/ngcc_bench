@@ -51,6 +51,12 @@ int main(int argc, char **argv) {
     char tmp_dir[] = "/tmp/ngcc_cli_regression.XXXXXX";
     char kat_path[PATH_MAX];
     char json_path[PATH_MAX];
+    char baseline_status_path[PATH_MAX];
+    char candidate_status_path[PATH_MAX];
+    char candidate_perf_path[PATH_MAX];
+    const char *validator_path = "../tests/validate_json_report.py";
+    const char *schema_path = "../docs/json_schema_v4.json";
+    const char *compare_script_path = "../tests/compare_stability_reports.py";
     const char *kat_content =
         "# compatibility: empty msg, md alias, comments, metadata and 0x prefix\n"
         "COUNT = 0\n"
@@ -85,6 +91,33 @@ int main(int argc, char **argv) {
         "PASS3 = 33\n"
         "STATEB = 03\n"
         "SHAREDSECRETB = 09\n";
+    const char *baseline_compare_json =
+        "{\n"
+        "  \"tests\": {\n"
+        "    \"hash\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
+        "    \"dsa\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
+        "    \"kem\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
+        "    \"kex\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}}\n"
+        "  }\n"
+        "}\n";
+    const char *candidate_status_compare_json =
+        "{\n"
+        "  \"tests\": {\n"
+        "    \"hash\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"WARNING\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
+        "    \"dsa\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
+        "    \"kem\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
+        "    \"kex\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}}\n"
+        "  }\n"
+        "}\n";
+    const char *candidate_perf_compare_json =
+        "{\n"
+        "  \"tests\": {\n"
+        "    \"hash\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 80.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
+        "    \"dsa\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
+        "    \"kem\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
+        "    \"kex\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}}\n"
+        "  }\n"
+        "}\n";
 
     CHECK(argc == 4, "usage: test_cli_regression BENCH MOCK_NGCC MOCK_HASH_ONLY");
     CHECK(test_make_temp_dir(tmp_dir) == 0, "failed to create temp dir");
@@ -93,7 +126,16 @@ int main(int argc, char **argv) {
           "kat path too long");
     CHECK(snprintf(json_path, sizeof(json_path), "%s/report.json", tmp_dir) < (int) sizeof(json_path),
           "json path too long");
+    CHECK(snprintf(baseline_status_path, sizeof(baseline_status_path), "%s/baseline_status.json", tmp_dir) < (int) sizeof(baseline_status_path),
+          "baseline status path too long");
+    CHECK(snprintf(candidate_status_path, sizeof(candidate_status_path), "%s/candidate_status.json", tmp_dir) < (int) sizeof(candidate_status_path),
+          "candidate status path too long");
+    CHECK(snprintf(candidate_perf_path, sizeof(candidate_perf_path), "%s/candidate_perf.json", tmp_dir) < (int) sizeof(candidate_perf_path),
+          "candidate perf path too long");
     CHECK(test_write_file(kat_path, kat_content) == 0, "failed to write kat file");
+    CHECK(test_write_file(baseline_status_path, baseline_compare_json) == 0, "failed to write baseline compare json");
+    CHECK(test_write_file(candidate_status_path, candidate_status_compare_json) == 0, "failed to write candidate status compare json");
+    CHECK(test_write_file(candidate_perf_path, candidate_perf_compare_json) == 0, "failed to write candidate perf compare json");
 
     {
         char *const cmd[] = {
@@ -170,14 +212,47 @@ int main(int argc, char **argv) {
               "stability regression failed");
     }
 
-    CHECK(test_file_contains(json_path, "\"schema_version\": 3"), "json missing schema version");
+    CHECK(test_file_contains(json_path, "\"schema_version\": 4"), "json missing schema version");
     CHECK(test_file_contains(json_path, "\"stability_sample_ms\": 0.500000"), "json missing sample window");
     CHECK(test_file_contains(json_path, "\"stability_thresholds\""), "json missing thresholds");
     CHECK(test_file_contains(json_path, "\"throughput_mean_bytes\":"), "json missing throughput metric");
+    CHECK(test_file_contains(json_path, "\"sample_count\":"), "json missing sample count");
     CHECK(test_file_contains(json_path, "\"hash\""), "json missing hash node");
     CHECK(test_file_contains(json_path, "\"dsa\""), "json missing dsa node");
     CHECK(test_file_contains(json_path, "\"kem\""), "json missing kem node");
     CHECK(test_file_contains(json_path, "\"kex\""), "json missing kex node");
+
+    {
+        char *const cmd[] = {
+            "/usr/bin/env", "python3", (char *) validator_path, json_path, (char *) schema_path, NULL
+        };
+        CHECK(run_and_expect(cmd, 0, NULL, NULL, NULL) == 0,
+              "json validation regression failed");
+    }
+
+    {
+        char *const cmd[] = {
+            "/usr/bin/env", "python3", (char *) compare_script_path,
+            baseline_status_path, candidate_status_path, NULL
+        };
+        CHECK(run_and_expect(cmd, 1,
+                             "hash.status: candidate WARNING worse than baseline STABLE",
+                             NULL,
+                             NULL) == 0,
+              "stability status compare regression failed");
+    }
+
+    {
+        char *const cmd[] = {
+            "/usr/bin/env", "python3", (char *) compare_script_path,
+            baseline_status_path, candidate_perf_path, NULL
+        };
+        CHECK(run_and_expect(cmd, 1,
+                             "hash.throughput_mean_ops:",
+                             NULL,
+                             NULL) == 0,
+              "stability mean compare regression failed");
+    }
 
     {
         char *const cmd[] = {

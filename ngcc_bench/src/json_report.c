@@ -133,6 +133,22 @@ static const char *status_to_text(run_status_t status) {
     }
 }
 
+static const char *stability_status_to_text(const test_report_t *test) {
+    if (test == NULL) {
+        return "SKIPPED";
+    }
+    if (test->stability_status == STATUS_SKIPPED) {
+        return "SKIPPED";
+    }
+    if (test->stability_status == STATUS_STOPPED) {
+        return "STOPPED";
+    }
+    if (test->stability.status[0] != '\0') {
+        return test->stability.status;
+    }
+    return status_to_text(test->stability_status);
+}
+
 /* ── Public API ────────────────────────────────────────────────── */
 
 int write_json_report(const cli_options_t *opts,
@@ -166,7 +182,7 @@ int write_json_report(const cli_options_t *opts,
     jw_init(&w, fp);
     jw_begin_object(&w, NULL);
 
-    jw_key_int(&w, "schema_version", 3);
+    jw_key_int(&w, "schema_version", 4);
     jw_key_str(&w, "timestamp", timestamp);
     jw_key_str(&w, "library", opts->lib_path);
 
@@ -211,7 +227,7 @@ int write_json_report(const cli_options_t *opts,
         jw_key_bool(&w, "selected", test->selected);
         jw_key_str(&w, "correctness", status_to_text(test->correctness_status));
         jw_key_str(&w, "performance", status_to_text(test->performance_status));
-        jw_key_str(&w, "stability", status_to_text(test->stability_status));
+        jw_key_str(&w, "stability", stability_status_to_text(test));
 
         /* kat */
         if (test->kat_used) {
@@ -257,6 +273,7 @@ int write_json_report(const cli_options_t *opts,
         if (test->stability_status != STATUS_SKIPPED) {
             jw_begin_object(&w, "stability_metrics");
             jw_key_llu(&w, "cases_run", test->stability.cases_run);
+            jw_key_llu(&w, "sample_count", test->stability.sample_count);
             jw_key_double(&w, "elapsed_seconds", test->stability.elapsed_seconds);
             jw_key_bool(&w, "interrupted", test->stability.interrupted);
             jw_key_bool(&w, "failed", test->stability.failed);

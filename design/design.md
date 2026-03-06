@@ -1,11 +1,31 @@
-# 算法测试平台设计方案 (V3)
+# 算法测试平台设计方案
 
 > [!IMPORTANT]
 > 本文是“目标设计 + 参考实现草案”的合集，不等同于当前仓库的已实现状态。  
 > 截至 2026-02-14，仓库已实现的是 `ngcc_bench` 非交互式 CLI 主程序（`ngcc_bench/src`），并已支持：
 > `hash/sig/kem/kex` + `correctness/performance/memory/stability` + 交互式入口（无参数运行）+ 可选 JSON 报告（`--json-out`）。  
-> 另外已支持 `hash/sig/kem/kex` 的 KAT（`--kat`）、性能分布统计（min/mean/median/max/stddev/CV）、稳定性阈值 CLI 可配置（`stable-*`/`warning-*`，JSON `schema_version=3` 记录阈值），以及稳定性窗口采样（`--stability-sample-ms`）；多工具内存分析等仍属于设计项。  
+> 另外已支持 `hash/sig/kem/kex` 的 KAT（`--kat`）、性能分布统计（min/mean/median/max/stddev/CV）、稳定性阈值 CLI 可配置（`stable-*`/`warning-*`，JSON `schema_version=4` 记录阈值与原始稳定性等级），以及稳定性窗口采样（`--stability-sample-ms`）；多工具内存分析等仍属于设计项。  
 > 详细一致性对照见：`docs/design_alignment.md`。
+
+> [!NOTE]
+> 本文件由原根目录 `design.md` 与 `design/final_design.md` 合并整理而成，作为仓库唯一设计文档保留在 `design/` 目录。
+
+## 0. 实现就绪摘要
+
+本文对应一个 Linux C 基准工具：通过 `dlopen/dlsym` 加载用户指定的 `.so`，对 `CryptHash`、`SIG`、`KEM`、`KEX` 统一执行正确性、性能、内存、稳定性测试。设计目标是模块化、最小依赖、可直接配合 CMake 落地。
+
+### 0.1 关键设计决策
+
+| 反馈/议题 | 结论 | 处理方式 |
+|---|---|---|
+| KEX vtable 需要完整函数签名 | 采纳 | 明确所有 KEX 原型 |
+| 内存单位统一 | 采纳 | 全部改为 bytes |
+| 稳定性测试需要信号处理 | 采纳 | 支持 SIGINT/SIGTERM 优雅退出 |
+| 随机输入需要更可靠来源 | 采纳 | 优先 `getrandom(2)`，回退 `/dev/urandom` |
+| `sig_verify` 返回值语义 | 采纳 | 约定 `0 = success` |
+| Hash 需要显式摘要长度参数 | 采纳 | 增加 `--digest-len-bits` |
+| memory 测试是否 fork 隔离 | 不采纳 | 记录为进程级口径并在文档中说明限制 |
+| 是否默认引入 JSON/verbose/config file | 有选择采纳 | 当前保留 `--json-out`，其余保持最简 |
 
 ## 1. 概述
 
@@ -1887,7 +1907,8 @@ ngcc_bench/
 │       ├── armv8_cycle.h           # ARMv8 PMU 计数器
 │       └── welford.h               # Welford 在线统计
 ├── reports/                        # 测试报告输出目录
-├── design.md
+├── design/
+│   └── design.md
 └── README.md
 ```
 

@@ -28,7 +28,10 @@ python3 tests/compare_stability_reports.py baseline.json current.json
 
 默认策略：
 
+- 稳定性等级不能比基线更差（`STABLE -> WARNING/UNSTABLE` 会失败）
 - CV 指标允许相对回归 `+20%`
+- 吞吐均值允许相对回归 `-10%`
+- 时间/周期均值允许相对回归 `+10%`
 - 内存增长允许绝对回归 `+1.0`
 - 错误率允许绝对回归 `+0.0`
 
@@ -38,6 +41,9 @@ python3 tests/compare_stability_reports.py baseline.json current.json
 python3 tests/compare_stability_reports.py \
   baseline.json current.json \
   --allow-cv-regress-ratio 0.10 \
+  --allow-throughput-mean-regress-ratio 0.05 \
+  --allow-time-mean-regress-ratio 0.05 \
+  --allow-cycles-mean-regress-ratio 0.05 \
   --allow-memory-growth-abs 0.5 \
   --allow-error-rate-abs 0.0
 ```

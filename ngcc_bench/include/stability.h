@@ -24,6 +24,7 @@ typedef enum {
 
 typedef struct {
     unsigned long long cases_run;
+    unsigned long long sample_count;
     double elapsed_seconds;
     int interrupted;
     int failed;

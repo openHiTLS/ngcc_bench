@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/ngcc_bench/report.schema.v4.json",
+  "title": "NGCC Benchmark Report v4",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "timestamp",
+    "library",
+    "options",
+    "tests",
+    "memory",
+    "overall"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 4
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "library": {
+      "type": "string"
+    },
+    "options": {
+      "type": "object",
+      "required": [
+        "test_mask",
+        "mode_mask",
+        "iterations",
+        "duration_hours",
+        "stability_max_cases",
+        "stability_sample_ms",
+        "msg_len",
+        "digest_len_bits",
+        "cycles",
+        "stability_thresholds",
+        "kat"
+      ],
+      "properties": {
+        "test_mask": { "type": "integer" },
+        "mode_mask": { "type": "integer" },
+        "iterations": { "type": "integer" },
+        "duration_hours": { "type": "number" },
+        "stability_max_cases": { "type": "integer" },
+        "stability_sample_ms": { "type": "number" },
+        "msg_len": { "type": "integer" },
+        "digest_len_bits": { "type": "integer" },
+        "cycles": { "type": "string", "enum": ["on", "off"] },
+        "kat": { "type": ["string", "null"] },
+        "stability_thresholds": {
+          "type": "object",
+          "required": [
+            "stable_throughput_cv_percent",
+            "stable_cycles_cv_percent",
+            "stable_time_cv_percent",
+            "stable_memory_growth_percent",
+            "stable_error_rate_percent",
+            "warning_throughput_cv_percent",
+            "warning_cycles_cv_percent",
+            "warning_time_cv_percent",
+            "warning_memory_growth_percent",
+            "warning_error_rate_percent"
+          ],
+          "properties": {
+            "stable_throughput_cv_percent": { "type": "number" },
+            "stable_cycles_cv_percent": { "type": "number" },
+            "stable_time_cv_percent": { "type": "number" },
+            "stable_memory_growth_percent": { "type": "number" },
+            "stable_error_rate_percent": { "type": "number" },
+            "warning_throughput_cv_percent": { "type": "number" },
+            "warning_cycles_cv_percent": { "type": "number" },
+            "warning_time_cv_percent": { "type": "number" },
+            "warning_memory_growth_percent": { "type": "number" },
+            "warning_error_rate_percent": { "type": "number" }
+          }
+        }
+      }
+    },
+    "tests": {
+      "type": "object",
+      "required": [
+        "hash",
+        "dsa",
+        "dsa-keygen",
+        "dsa-sig",
+        "dsa-verify",
+        "kem",
+        "kex",
+        "kem-keygen",
+        "kem-encap",
+        "kem-decap"
+      ],
+      "properties": {
+        "hash": { "$ref": "#/$defs/testResult" },
+        "dsa": { "$ref": "#/$defs/testResult" },
+        "dsa-keygen": { "$ref": "#/$defs/testResult" },
+        "dsa-sig": { "$ref": "#/$defs/testResult" },
+        "dsa-verify": { "$ref": "#/$defs/testResult" },
+        "kem": { "$ref": "#/$defs/testResult" },
+        "kex": { "$ref": "#/$defs/testResult" },
+        "kem-keygen": { "$ref": "#/$defs/testResult" },
+        "kem-encap": { "$ref": "#/$defs/testResult" },
+        "kem-decap": { "$ref": "#/$defs/testResult" }
+      }
+    },
+    "memory": {
+      "type": "object",
+      "required": ["status", "static_mem", "heap_baseline_bytes", "heap_peak_bytes"],
+      "properties": {
+        "status": { "$ref": "#/$defs/runStatus" },
+        "static_mem": {
+          "type": "object",
+          "required": ["text_bytes", "data_bytes", "bss_bytes", "rodata_bytes", "total_bytes"],
+          "properties": {
+            "text_bytes": { "type": "integer" },
+            "data_bytes": { "type": "integer" },
+            "bss_bytes": { "type": "integer" },
+            "rodata_bytes": { "type": "integer" },
+            "total_bytes": { "type": "integer" }
+          }
+        },
+        "heap_baseline_bytes": { "type": "integer" },
+        "heap_peak_bytes": { "type": "integer" }
+      }
+    },
+    "overall": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["PASS", "FAIL"]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "runStatus": {
+      "type": "string",
+      "enum": ["PASS", "FAIL", "STOPPED", "SKIPPED"]
+    },
+    "stabilityStatus": {
+      "type": "string",
+      "enum": ["STABLE", "WARNING", "UNSTABLE", "FAIL", "STOPPED", "SKIPPED"]
+    },
+    "testResult": {
+      "type": "object",
+      "required": [
+        "selected",
+        "correctness",
+        "performance",
+        "stability",
+        "kat",
+        "performance_metrics",
+        "stability_metrics"
+      ],
+      "properties": {
+        "selected": { "type": "boolean" },
+        "correctness": { "$ref": "#/$defs/runStatus" },
+        "performance": { "$ref": "#/$defs/runStatus" },
+        "stability": { "$ref": "#/$defs/stabilityStatus" },
+        "kat": { "type": ["object", "null"] },
+        "performance_metrics": { "type": ["object", "null"] },
+        "stability_metrics": { "type": ["object", "null"] }
+      }
+    }
+  }
+}
