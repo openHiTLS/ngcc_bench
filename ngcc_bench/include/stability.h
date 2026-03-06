@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "bench_core.h"
 #include "ngcc_api.h"
 
 #define NGCC_STATUS_LEN  16
@@ -87,10 +88,18 @@ typedef struct {
     double warning_error_rate_percent;
 } ngcc_stability_thresholds_t;
 
+typedef int (*ngcc_correctness_dispatch_fn)(const ngcc_api_t *api,
+                                            int digest_len_bits,
+                                            size_t msg_len);
+
+typedef unsigned long long (*ngcc_bytes_per_case_fn)(const ngcc_api_t *api,
+                                                     size_t msg_len);
+
 void ngcc_stability_thresholds_set_defaults(ngcc_stability_thresholds_t *out_thresholds);
 
 int ngcc_run_stability(const ngcc_api_t *api,
-                       ngcc_test_kind_t test_kind,
+                       ngcc_correctness_dispatch_fn correctness_fn,
+                       ngcc_bytes_per_case_fn bytes_per_case_fn,
                        int digest_len_bits,
                        size_t msg_len,
                        int cycles_enabled,

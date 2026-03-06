@@ -44,6 +44,20 @@ def main() -> int:
     expect(isinstance(require_key(report, "timestamp"), str), "timestamp must be string")
     expect(isinstance(require_key(report, "library"), str), "library must be string")
 
+    report_metadata = report.get("report_metadata")
+    if report_metadata is not None:
+        expect(isinstance(report_metadata, dict), "report_metadata must be object")
+        expect(isinstance(require_key(report_metadata, "generator"), str), "report_metadata.generator must be string")
+        expect(isinstance(require_key(report_metadata, "generator_version"), str), "report_metadata.generator_version must be string")
+        expect(isinstance(require_key(report_metadata, "json_out_path"), str), "report_metadata.json_out_path must be string")
+
+    environment = report.get("environment")
+    if environment is not None:
+        expect(isinstance(environment, dict), "environment must be object")
+        for k in ("hostname", "cwd", "sysname", "release", "version", "machine"):
+            v = environment.get(k)
+            expect(v is None or isinstance(v, str), f"environment.{k} must be string|null")
+
     opts = require_key(report, "options")
     for k in ("test_mask", "mode_mask", "iterations", "stability_max_cases", "msg_len", "digest_len_bits"):
         expect(isinstance(require_key(opts, k), int), f"options.{k} must be integer")

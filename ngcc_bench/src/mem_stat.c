@@ -1,12 +1,13 @@
 #include "mem_stat.h"
 
+#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
 #ifdef __linux__
-#include <stdio.h>
 #include <sys/resource.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #endif
 
@@ -15,6 +16,81 @@
 #define HAVE_MALLINFO2 1
 #else
 #define HAVE_MALLINFO2 0
+#endif
+
+#ifdef __linux__
+static FILE *open_size_output(const char *lib_path, pid_t *out_pid) {
+    int pipefd[2];
+    int devnull_fd;
+    pid_t pid;
+    FILE *fp;
+
+    if (lib_path == NULL || out_pid == NULL) {
+        return NULL;
+    }
+    if (pipe(pipefd) != 0) {
+        return NULL;
+    }
+
+    pid = fork();
+    if (pid < 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return NULL;
+    }
+
+    if (pid == 0) {
+        char *const argv[] = {"size", "-A", (char *) lib_path, NULL};
+
+        close(pipefd[0]);
+        if (dup2(pipefd[1], STDOUT_FILENO) < 0) {
+            _exit(127);
+        }
+
+        devnull_fd = open("/dev/null", O_WRONLY);
+        if (devnull_fd >= 0) {
+            if (dup2(devnull_fd, STDERR_FILENO) < 0) {
+                close(devnull_fd);
+                _exit(127);
+            }
+            close(devnull_fd);
+        }
+
+        close(pipefd[1]);
+        execvp(argv[0], argv);
+        _exit(127);
+    }
+
+    close(pipefd[1]);
+    fp = fdopen(pipefd[0], "r");
+    if (fp == NULL) {
+        close(pipefd[0]);
+        waitpid(pid, NULL, 0);
+        return NULL;
+    }
+
+    *out_pid = pid;
+    return fp;
+}
+
+static int close_size_output(FILE *fp, pid_t pid) {
+    int status;
+    int rc = 0;
+
+    if (fp == NULL) {
+        return -1;
+    }
+    if (fclose(fp) != 0) {
+        rc = -1;
+    }
+    if (waitpid(pid, &status, 0) < 0) {
+        return -1;
+    }
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        return -1;
+    }
+    return rc;
+}
 #endif
 
 uint64_t ngcc_mem_current_rss_bytes(void) {
@@ -71,9 +147,9 @@ uint64_t ngcc_mem_heap_bytes(void) {
 
 int ngcc_mem_analyze_static(const char *lib_path, ngcc_static_mem_t *out) {
 #ifdef __linux__
-    char cmd[1024];
     char line[256];
     FILE *fp;
+    pid_t child_pid;
 
     if (lib_path == NULL || out == NULL) {
         return -1;
@@ -81,8 +157,7 @@ int ngcc_mem_analyze_static(const char *lib_path, ngcc_static_mem_t *out) {
 
     memset(out, 0, sizeof(*out));
 
-    snprintf(cmd, sizeof(cmd), "size -A %s 2>/dev/null", lib_path);
-    fp = popen(cmd, "r");
+    fp = open_size_output(lib_path, &child_pid);
     if (fp == NULL) {
         return -1;
     }
@@ -104,7 +179,10 @@ int ngcc_mem_analyze_static(const char *lib_path, ngcc_static_mem_t *out) {
             out->rodata_size = (uint64_t) sz;
         }
     }
-    pclose(fp);
+    if (close_size_output(fp, child_pid) != 0) {
+        memset(out, 0, sizeof(*out));
+        return -1;
+    }
 
     out->total = out->text_size + out->data_size + out->bss_size + out->rodata_size;
     return 0;

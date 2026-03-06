@@ -60,10 +60,11 @@
 支持的测试目标：
 - `hash`
 - `dsa-verify`
+- `kem`
 - `kex`
 
 说明：
-- `dsa`、`dsa-keygen`、`dsa-sig`、`kem` 默认回退到随机 correctness
+- `dsa`、`dsa-keygen`、`dsa-sig`、`kem-keygen`、`kem-encap`、`kem-decap` 默认回退到随机 correctness
 - KAT 支持 `#` / `;` / `//` 注释、`0x` 前缀、空白/`:`/`_` 分隔
 
 常用字段：

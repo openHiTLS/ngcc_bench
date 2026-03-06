@@ -5,15 +5,27 @@
  * Exit code 0 = all tests passed, non-zero = failure.
  */
 #include <math.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "bench_core.h"
 #include "cli_parser.h"
 #include "cli_types.h"
+#include "json_report.h"
+#include "loader.h"
 #include "stability.h"
 #include "stats_util.h"
+
+#ifndef NGCC_UNIT_MOCK_NGCC
+#define NGCC_UNIT_MOCK_NGCC ""
+#endif
+
+#ifndef NGCC_UNIT_MOCK_HASH_ONLY
+#define NGCC_UNIT_MOCK_HASH_ONLY ""
+#endif
 
 /* ── Minimal test harness ─────────────────────────────────────── */
 
@@ -61,6 +73,49 @@ static int g_tests_failed = 0;
             printf("  PASS  %s\n", #fn);                                 \
         }                                                                \
     } while (0)
+
+static int read_text_file(const char *path, char **out_data) {
+    FILE *fp;
+    long size;
+    char *data;
+
+    if (path == NULL || out_data == NULL) {
+        return -1;
+    }
+
+    fp = fopen(path, "rb");
+    if (fp == NULL) {
+        return -1;
+    }
+    if (fseek(fp, 0, SEEK_END) != 0) {
+        fclose(fp);
+        return -1;
+    }
+    size = ftell(fp);
+    if (size < 0) {
+        fclose(fp);
+        return -1;
+    }
+    if (fseek(fp, 0, SEEK_SET) != 0) {
+        fclose(fp);
+        return -1;
+    }
+
+    data = (char *) malloc((size_t) size + 1U);
+    if (data == NULL) {
+        fclose(fp);
+        return -1;
+    }
+    if (size > 0 && fread(data, 1, (size_t) size, fp) != (size_t) size) {
+        fclose(fp);
+        free(data);
+        return -1;
+    }
+    fclose(fp);
+    data[size] = '\0';
+    *out_data = data;
+    return 0;
+}
 
 /* ── stats_util tests ─────────────────────────────────────────── */
 
@@ -122,6 +177,56 @@ static void test_timespec_ms_diff_subsecond(void) {
     struct timespec end = {0, 1000000L}; /* 1 ms */
     double diff = timespec_ms_diff(&start, &end);
     TEST_ASSERT_DOUBLE_NEAR(diff, 1.0, 1e-6);
+}
+
+static void test_monotonic_clock_gettime_valid(void) {
+    struct timespec start;
+    struct timespec end;
+
+    TEST_ASSERT_INT_EQ(ngcc_monotonic_clock_gettime(&start), 0);
+    TEST_ASSERT_INT_EQ(ngcc_monotonic_clock_gettime(&end), 0);
+    TEST_ASSERT(timespec_ms_diff(&start, &end) >= 0.0);
+}
+
+static void test_monotonic_clock_gettime_null(void) {
+    TEST_ASSERT_INT_EQ(ngcc_monotonic_clock_gettime(NULL), -1);
+}
+
+/* ── loader tests ─────────────────────────────────────────────── */
+
+static void test_loader_hash_only_selected_symbols(void) {
+    ngcc_library_t lib;
+
+    TEST_ASSERT(NGCC_UNIT_MOCK_HASH_ONLY[0] != '\0');
+    TEST_ASSERT_INT_EQ(ngcc_load_library(NGCC_UNIT_MOCK_HASH_ONLY, TEST_MASK_HASH, &lib), 0);
+    TEST_ASSERT(lib.handle != NULL);
+    TEST_ASSERT(lib.api.CryptHash != NULL);
+    TEST_ASSERT(lib.api.sig_get_pk_len_bytes == NULL);
+    TEST_ASSERT(lib.api.kem_get_pk_len_bytes == NULL);
+    TEST_ASSERT(lib.api.kex_get_passes_num == NULL);
+    ngcc_unload_library(&lib);
+}
+
+static void test_loader_hash_only_missing_required_symbols(void) {
+    ngcc_library_t lib;
+
+    TEST_ASSERT(NGCC_UNIT_MOCK_HASH_ONLY[0] != '\0');
+    TEST_ASSERT_INT_EQ(ngcc_load_library(NGCC_UNIT_MOCK_HASH_ONLY, TEST_MASK_DSA, &lib), -1);
+    TEST_ASSERT(lib.handle == NULL);
+    TEST_ASSERT(lib.api.CryptHash == NULL);
+}
+
+static void test_loader_selected_groups_only_loaded(void) {
+    ngcc_library_t lib;
+
+    TEST_ASSERT(NGCC_UNIT_MOCK_NGCC[0] != '\0');
+    TEST_ASSERT_INT_EQ(ngcc_load_library(NGCC_UNIT_MOCK_NGCC, TEST_MASK_HASH, &lib), 0);
+    TEST_ASSERT(lib.handle != NULL);
+    TEST_ASSERT(lib.api.CryptHash != NULL);
+    TEST_ASSERT(lib.api.sig_keygen == NULL);
+    TEST_ASSERT(lib.api.kem_keygen == NULL);
+    TEST_ASSERT(lib.api.kex_init_a == NULL);
+    ngcc_unload_library(&lib);
 }
 
 /* ── parse_test_mask tests ────────────────────────────────────── */
@@ -326,6 +431,166 @@ static void test_stability_thresholds_defaults(void) {
     TEST_ASSERT(t.warning_error_rate_percent >= t.stable_error_rate_percent);
 }
 
+/* ── json_report tests ─────────────────────────────────────────── */
+
+static void test_write_json_report_basic(void) {
+    static const char *const k_test_names[NGCC_NUM_TESTS] = {
+        "hash", "dsa", "dsa-keygen", "dsa-sig", "dsa-verify",
+        "kem", "kem-keygen", "kem-encap", "kem-decap", "kex"
+    };
+    char tmp_dir[] = "/tmp/ngcc_unit_json.XXXXXX";
+    char json_path[PATH_MAX];
+    cli_options_t opts;
+    run_report_t report;
+    char *json_data = NULL;
+    size_t i;
+
+    TEST_ASSERT(mkdtemp(tmp_dir) != NULL);
+    TEST_ASSERT(snprintf(json_path, sizeof(json_path), "%s/report.json", tmp_dir) < (int) sizeof(json_path));
+
+    init_default_options(&opts);
+    memset(&report, 0, sizeof(report));
+    opts.lib_path = "/tmp/mock_lib.so";
+    opts.json_out_path = json_path;
+    opts.kat_path = "/tmp/vectors.kat";
+    opts.cycles_enabled = 0;
+
+    for (i = 0; i < NGCC_NUM_TESTS; ++i) {
+        report.tests[i].name = k_test_names[i];
+        report.tests[i].correctness_status = STATUS_SKIPPED;
+        report.tests[i].performance_status = STATUS_SKIPPED;
+        report.tests[i].stability_status = STATUS_SKIPPED;
+    }
+
+    report.tests[0].selected = 1;
+    report.tests[0].correctness_status = STATUS_PASS;
+    report.tests[0].performance_status = STATUS_PASS;
+    report.tests[0].stability_status = STATUS_PASS;
+    report.tests[0].kat_used = 1;
+    report.tests[0].kat_total = 3;
+    report.tests[0].kat_passed = 3;
+    report.tests[0].kat_failed = 0;
+    report.tests[0].performance.iterations = 8;
+    report.tests[0].performance.warmup_iterations = 10;
+    report.tests[0].performance.elapsed_ms = 1.5;
+    report.tests[0].performance.bytes_per_op = 64.0;
+    report.tests[0].performance.ops_per_sec = 1000.0;
+    report.tests[0].performance.bytes_per_sec = 64000.0;
+    report.tests[0].performance.time_ms_mean = 0.2;
+    report.tests[0].performance.time_ms_median = 0.2;
+    report.tests[0].performance.time_ms_stddev = 0.01;
+    report.tests[0].performance.time_ms_cv_percent = 5.0;
+    report.tests[0].stability.status[0] = 'W';
+    strcpy(report.tests[0].stability.status, "WARNING");
+
+    report.memory_status = STATUS_PASS;
+    report.static_mem.text_size = 10;
+    report.static_mem.data_size = 20;
+    report.static_mem.bss_size = 30;
+    report.static_mem.rodata_size = 40;
+    report.static_mem.total = 100;
+    report.memory_heap_baseline_bytes = 111;
+    report.memory_heap_peak_bytes = 222;
+
+    TEST_ASSERT_INT_EQ(write_json_report(&opts, &report, 1), 0);
+    TEST_ASSERT_INT_EQ(read_text_file(json_path, &json_data), 0);
+    TEST_ASSERT(strstr(json_data, "\"schema_version\": 4") != NULL);
+    TEST_ASSERT(strstr(json_data, "\"library\": \"/tmp/mock_lib.so\"") != NULL);
+    TEST_ASSERT(strstr(json_data, "\"report_metadata\"") != NULL);
+    TEST_ASSERT(strstr(json_data, "\"generator\": \"ngcc_bench\"") != NULL);
+    TEST_ASSERT(strstr(json_data, "\"json_out_path\": \"") != NULL);
+    TEST_ASSERT(strstr(json_data, "\"environment\"") != NULL);
+    TEST_ASSERT(strstr(json_data, "\"hostname\":") != NULL);
+    TEST_ASSERT(strstr(json_data, "\"cwd\":") != NULL);
+    TEST_ASSERT(strstr(json_data, "\"cycles\": \"off\"") != NULL);
+    TEST_ASSERT(strstr(json_data, "\"stability\": \"WARNING\"") != NULL);
+    TEST_ASSERT(strstr(json_data, "\"total\": 3") != NULL);
+    TEST_ASSERT(strstr(json_data, "\"overall\": {\n    \"status\": \"FAIL\"") != NULL);
+
+    free(json_data);
+    TEST_ASSERT(unlink(json_path) == 0);
+    TEST_ASSERT(rmdir(tmp_dir) == 0);
+}
+
+/* ── stability runner tests ───────────────────────────────────── */
+
+static int stability_stub_success(const ngcc_api_t *api, int digest_len_bits, size_t msg_len) {
+    (void) api;
+    (void) digest_len_bits;
+    (void) msg_len;
+    return 0;
+}
+
+static int stability_stub_fail(const ngcc_api_t *api, int digest_len_bits, size_t msg_len) {
+    (void) api;
+    (void) digest_len_bits;
+    (void) msg_len;
+    return -1;
+}
+
+static unsigned long long stability_stub_bytes(const ngcc_api_t *api, size_t msg_len) {
+    (void) api;
+    return (unsigned long long) msg_len;
+}
+
+static void test_run_stability_single_success(void) {
+    ngcc_api_t api;
+    ngcc_stability_result_t result;
+    ngcc_stability_thresholds_t thresholds;
+
+    memset(&api, 0, sizeof(api));
+    memset(&result, 0, sizeof(result));
+    ngcc_stability_thresholds_set_defaults(&thresholds);
+    thresholds.stable_throughput_cv_percent = 100.0;
+    thresholds.stable_time_cv_percent = 100.0;
+    thresholds.stable_memory_growth_percent = 100.0;
+    thresholds.warning_throughput_cv_percent = 200.0;
+    thresholds.warning_time_cv_percent = 200.0;
+    thresholds.warning_memory_growth_percent = 200.0;
+    TEST_ASSERT_INT_EQ(ngcc_run_stability(&api,
+                                          stability_stub_success,
+                                          stability_stub_bytes,
+                                          0,
+                                          64,
+                                          0,
+                                          1.0,
+                                          0.0001,
+                                          1,
+                                          &thresholds,
+                                          &result),
+                       0);
+    TEST_ASSERT(result.cases_run == 1);
+    TEST_ASSERT(result.total_executions == 1);
+    TEST_ASSERT(result.error_count == 0);
+    TEST_ASSERT_DOUBLE_NEAR(result.bytes_per_case, 64.0, 1e-9);
+    TEST_ASSERT(strcmp(result.status, "STABLE") == 0);
+}
+
+static void test_run_stability_single_failure(void) {
+    ngcc_api_t api;
+    ngcc_stability_result_t result;
+
+    memset(&api, 0, sizeof(api));
+    memset(&result, 0, sizeof(result));
+    TEST_ASSERT_INT_EQ(ngcc_run_stability(&api,
+                                          stability_stub_fail,
+                                          stability_stub_bytes,
+                                          0,
+                                          64,
+                                          0,
+                                          1.0,
+                                          0.0001,
+                                          1,
+                                          NULL,
+                                          &result),
+                       -1);
+    TEST_ASSERT(result.cases_run == 0);
+    TEST_ASSERT(result.total_executions == 1);
+    TEST_ASSERT(result.error_count == 1);
+    TEST_ASSERT(result.failed);
+    TEST_ASSERT(strstr(result.failure_reasons, "runtime errors;") != NULL);
+}
+
 /* ── main ─────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -340,6 +605,13 @@ int main(void) {
     RUN_TEST(test_timespec_ms_diff_basic);
     RUN_TEST(test_timespec_ms_diff_zero);
     RUN_TEST(test_timespec_ms_diff_subsecond);
+    RUN_TEST(test_monotonic_clock_gettime_valid);
+    RUN_TEST(test_monotonic_clock_gettime_null);
+
+    /* loader */
+    RUN_TEST(test_loader_hash_only_selected_symbols);
+    RUN_TEST(test_loader_hash_only_missing_required_symbols);
+    RUN_TEST(test_loader_selected_groups_only_loaded);
 
     /* parse_test_mask */
     RUN_TEST(test_parse_test_mask_valid);
@@ -371,6 +643,13 @@ int main(void) {
 
     /* stability thresholds defaults */
     RUN_TEST(test_stability_thresholds_defaults);
+
+    /* json_report */
+    RUN_TEST(test_write_json_report_basic);
+
+    /* stability runner */
+    RUN_TEST(test_run_stability_single_success);
+    RUN_TEST(test_run_stability_single_failure);
 
     printf("\n%d/%d tests passed\n", g_tests_run - g_tests_failed, g_tests_run);
 
