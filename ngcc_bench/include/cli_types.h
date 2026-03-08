@@ -58,6 +58,7 @@ typedef struct {
     const char *kat_path;
     unsigned int test_mask;
     unsigned int mode_mask;
+    int digest_len_bits;
     double duration_hours;
     unsigned long long stability_max_cases;
     double stability_sample_ms;

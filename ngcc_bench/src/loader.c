@@ -20,8 +20,7 @@ static int load_symbol(void *handle, const char *name, void **fn_ptr) {
 /* ── Per-group loaders ──────────────────────────────────────────── */
 
 static int load_hash_symbols(void *handle, ngcc_api_t *api) {
-    if (load_symbol(handle, "CryptHash", (void **) &api->CryptHash) != 0 ||
-        load_symbol(handle, "get_digest_len_bits", (void **) &api->get_digest_len_bits) != 0) {
+    if (load_symbol(handle, "CryptHash", (void **) &api->CryptHash) != 0) {
         return -1;
     }
     return 0;

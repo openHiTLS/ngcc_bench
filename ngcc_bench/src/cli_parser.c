@@ -20,6 +20,7 @@ void print_usage(const char *prog) {
     printf("ngcc_bench %s\n\n", NGCC_VERSION);
     printf("Usage:\n");
     printf("  %s --lib /path/to/lib.so --test hash|dsa|dsa-keygen|dsa-sig|dsa-verify|kem|kem-keygen|kem-encap|kem-decap|kex|all --mode correctness|performance|memory|stability|all\n", prog);
+    printf("     [--digest-len-bits BITS]\n");
     printf("     [--duration-hours H] [--stability-max-cases N] [--stability-sample-ms MS]\n");
     printf("     [--json-out PATH] [--kat FILE]\n");
     printf("     [--stable-throughput-cv-percent P] [--stable-cycles-cv-percent P] [--stable-time-cv-percent P]\n");
@@ -183,6 +184,7 @@ int parse_cli_options(int argc, char **argv, cli_options_t *opts) {
         {"lib", required_argument, NULL, 'l'},
         {"test", required_argument, NULL, 't'},
         {"mode", required_argument, NULL, 'm'},
+        {"digest-len-bits", required_argument, NULL, 'b'},
         {"duration-hours", required_argument, NULL, 'd'},
         {"stability-max-cases", required_argument, NULL, 's'},
         {"stability-sample-ms", required_argument, NULL, OPT_STABILITY_SAMPLE_MS},
@@ -217,6 +219,12 @@ int parse_cli_options(int argc, char **argv, cli_options_t *opts) {
             case 'm':
                 if (parse_mode_mask(optarg, &opts->mode_mask) != 0) {
                     fprintf(stderr, "invalid --mode value: %s\n", optarg);
+                    return -1;
+                }
+                break;
+            case 'b':
+                if (parse_int_value(optarg, &opts->digest_len_bits) != 0 || opts->digest_len_bits <= 0) {
+                    fprintf(stderr, "invalid --digest-len-bits value: %s\n", optarg);
                     return -1;
                 }
                 break;
@@ -336,6 +344,11 @@ int validate_options(const cli_options_t *opts) {
 
     if (opts->lib_path == NULL) {
         fprintf(stderr, "error: --lib is required\n");
+        return -1;
+    }
+
+    if ((opts->test_mask & TEST_MASK_HASH) && opts->digest_len_bits <= 0) {
+        fprintf(stderr, "error: --digest-len-bits is required when hash test is selected\n");
         return -1;
     }
 

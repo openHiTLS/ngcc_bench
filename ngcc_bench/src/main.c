@@ -295,7 +295,7 @@ static int run_correctness_for_test(const ngcc_api_t *api,
         unsigned long long passed = 0;
         unsigned long long failed = 0;
         int kat_rc = dispatch->kat_fn(api,
-                                      api->get_digest_len_bits(),
+                                      opts->digest_len_bits,
                                       opts->kat_path,
                                       &total,
                                       &passed,
@@ -321,7 +321,7 @@ static int run_correctness_for_test(const ngcc_api_t *api,
         printf("[%s][correctness] KAT_NO_VECTOR fallback=random\n", test->name);
     }
 
-    rc = dispatch->correctness_fn(api, api->get_digest_len_bits(), k_msg_lens[0]);
+    rc = dispatch->correctness_fn(api, opts->digest_len_bits, k_msg_lens[0]);
     printf("[%s][correctness] %s\n", test->name, rc == 0 ? "PASS" : "FAIL");
     if (report != NULL) {
         report->correctness_status = (rc == 0) ? STATUS_PASS : STATUS_FAIL;
@@ -342,10 +342,9 @@ static int run_performance_for_test(const ngcc_api_t *api,
     int any_fail = 0;
     int digest_bits = 0;
 
-    (void) opts;
 
     if (test->kind == NGCC_TEST_HASH) {
-        digest_bits = api->get_digest_len_bits();
+        digest_bits = opts->digest_len_bits;
     }
 
     cfg.iterations = NGCC_PERF_ITERATIONS;
@@ -423,7 +422,7 @@ static int run_stability_for_test(const ngcc_api_t *api,
     rc = ngcc_run_stability(api,
                             dispatch->correctness_fn,
                             dispatch->bytes_per_case_fn,
-                            (test->kind == NGCC_TEST_HASH) ? api->get_digest_len_bits() : 0,
+                            (test->kind == NGCC_TEST_HASH) ? opts->digest_len_bits : 0,
                             NGCC_STABILITY_MSG_LEN,
                             1,
                             opts->stability_sample_ms,

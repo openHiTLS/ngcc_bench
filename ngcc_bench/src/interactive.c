@@ -150,6 +150,8 @@ int run_interactive_setup(cli_options_t *opts,
     int mode_choice;
     double d_tmp;
     int stability_selected;
+    int correctness_selected;
+    int hash_selected;
 
     printf("NGCC Benchmark Interactive Mode\n");
     printf("--------------------------------\n");
@@ -180,6 +182,14 @@ int run_interactive_setup(cli_options_t *opts,
     }
 
     stability_selected = (opts->mode_mask & MODE_MASK_STABILITY) != 0;
+    correctness_selected = (opts->mode_mask & MODE_MASK_CORRECTNESS) != 0;
+    hash_selected = (opts->test_mask & TEST_MASK_HASH) != 0;
+
+    if (hash_selected) {
+        if (prompt_optional_int("Digest length bits", opts->digest_len_bits > 0 ? opts->digest_len_bits : 256, &opts->digest_len_bits) != 0) {
+            return -1;
+        }
+    }
 
     if (stability_selected) {
         d_tmp = opts->duration_hours;
