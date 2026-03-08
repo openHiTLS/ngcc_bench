@@ -34,25 +34,40 @@ static int run_expect(char *const argv[],
 
 int main(int argc, char **argv) {
     char tmp_dir[] = "/tmp/ngcc_mock_mlkex.XXXXXX";
+    char kat_dir[PATH_MAX];
     char kat_path[PATH_MAX];
+    /*
+     * 3-pass mock KEX test vector:
+     *   kex_init_a  → pka=01, ska=02, sta=03
+     *   kex_init_b  → pkb=01, skb=02, stb=03
+     *   pass1_msg_a → sta=03(?), m1=11
+     *   pass2_msg_b → stb=03(?), m2=22
+     *   pass3_msg_a → sta=03(?), m3=33
+     *   derive_ss_a(ska=02, pkb=01, mb=22, sta=03) → ssa=09
+     *   derive_ss_b(skb=02, pka=01, ma=33, stb=03) → ssb=09
+     */
     const char *kat_content =
-        "COUNT = 0\n"
-        "SK_A = 02\n"
-        "PK_B = 01\n"
-        "PASS2 = 22\n"
-        "STATEA = 03\n"
-        "SHAREDSECRETA = 09\n"
-        "\n"
-        "COUNT = 1\n"
-        "SK_B = 02\n"
-        "PK_A = 01\n"
-        "PASS3 = 33\n"
-        "STATEB = 03\n"
-        "SHAREDSECRETB = 09\n";
+        "Count = 0\n"
+        "PKa = 01\n"
+        "SKa = 02\n"
+        "Init_Sta = 03\n"
+        "PKb = 01\n"
+        "SKb = 02\n"
+        "Init_Stb = 03\n"
+        "Pass1_Sta = 03\n"
+        "M1 = 11\n"
+        "Pass2_Stb = 03\n"
+        "M2 = 22\n"
+        "Pass3_Sta = 03\n"
+        "M3 = 33\n"
+        "SS = 09\n";
 
     CHECK(argc == 3, "usage: test_mock_mlkex BENCH MOCK_LIB");
     CHECK(test_make_temp_dir(tmp_dir) == 0, "failed to create temp dir");
-    CHECK(snprintf(kat_path, sizeof(kat_path), "%s/kex_vectors.kat", tmp_dir) < (int) sizeof(kat_path),
+    CHECK(snprintf(kat_dir, sizeof(kat_dir), "%s/kex_kat", tmp_dir) < (int) sizeof(kat_dir),
+          "kat dir path too long");
+    CHECK(test_mkdir_p(kat_dir) == 0, "failed to create kat dir");
+    CHECK(snprintf(kat_path, sizeof(kat_path), "%s/KAT_KEX_mock.txt", kat_dir) < (int) sizeof(kat_path),
           "kat path too long");
     CHECK(test_write_file(kat_path, kat_content) == 0, "failed to write kat file");
 
@@ -69,8 +84,8 @@ int main(int argc, char **argv) {
               "performance failed");
     }
     {
-        char *const cmd[] = {argv[1], "--lib", argv[2], "--test", "kex", "--mode", "correctness", "--kat", kat_path, NULL};
-        CHECK(run_expect(cmd, "[kex][correctness] PASS total=2 passed=2 failed=0 source=kat", NULL, NULL) == 0,
+        char *const cmd[] = {argv[1], "--lib", argv[2], "--test", "kex", "--mode", "correctness", "--kat", kat_dir, NULL};
+        CHECK(run_expect(cmd, "[kex][correctness] PASS total=1 passed=1 failed=0 source=kat", NULL, NULL) == 0,
               "kat correctness failed");
     }
 

@@ -1,7 +1,10 @@
 #include "bench_kex.h"
 
+#include <dirent.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "bench_core.h"
 #include "kat_parser.h"
@@ -228,12 +231,57 @@ out:
     return rc;
 }
 
-int ngcc_kex_correctness_kat_file(const ngcc_api_t *api,
-                                  const char *kat_path,
-                                  unsigned long long *out_total,
-                                  unsigned long long *out_passed,
-                                  unsigned long long *out_failed) {
-    ngcc_kat_file_t kat;
+static unsigned long long kex_field_to_u64(const ngcc_kat_field_t *f) {
+    unsigned long long v = 0;
+    size_t i;
+    if (f == NULL || f->data == NULL || f->len != 8) {
+        return 0;
+    }
+    for (i = 0; i < 8; i++) {
+        v = (v << 8) | f->data[i];
+    }
+    return v;
+}
+
+static int kex_check_field_len(const char *field_name, const ngcc_kat_field_t *data_field,
+                               const ngcc_kat_field_t *len_field) {
+    unsigned long long expected;
+    if (len_field == NULL || data_field == NULL) {
+        return 0;
+    }
+    expected = kex_field_to_u64(len_field);
+    if (expected == 0) {
+        return 0;
+    }
+    if ((unsigned long long) data_field->len != expected) {
+        fprintf(stderr, "[kex][kat] error: %s length mismatch: "
+                "file says %llu bytes, data has %zu bytes\n",
+                field_name, expected, data_field->len);
+        return -1;
+    }
+    return 0;
+}
+
+static int path_is_directory_kex(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        return 0;
+    }
+    return S_ISDIR(st.st_mode);
+}
+
+/* Maximum number of KEX passes to scan for (M1..M{N}, Pass{N}_Sta/Stb). */
+#define KEX_MAX_PASS_SCAN 10
+
+static int kex_field_populated(const ngcc_kat_field_t *f) {
+    return f != NULL && f->data != NULL && f->len > 0;
+}
+
+static int verify_kex_kat_vectors(const ngcc_api_t *api,
+                                  const ngcc_kat_file_t *kat,
+                                  unsigned long long *io_total,
+                                  unsigned long long *io_passed,
+                                  unsigned long long *io_failed) {
     unsigned long long pk_cap;
     unsigned long long sk_cap;
     unsigned long long sta_cap;
@@ -242,19 +290,6 @@ int ngcc_kex_correctness_kat_file(const ngcc_api_t *api,
     unsigned long long ss_cap;
     unsigned char *ss_out = NULL;
     size_t i;
-    unsigned long long total = 0;
-    unsigned long long passed = 0;
-    unsigned long long failed = 0;
-    int rc = 1;
-
-    if (api == NULL || kat_path == NULL) {
-        return -1;
-    }
-
-    memset(&kat, 0, sizeof(kat));
-    if (ngcc_kat_parse_file(kat_path, &kat) != 0) {
-        return -1;
-    }
 
     pk_cap = api->kex_get_pk_len_bytes();
     sk_cap = api->kex_get_sk_len_bytes();
@@ -262,76 +297,166 @@ int ngcc_kex_correctness_kat_file(const ngcc_api_t *api,
     stb_cap = api->kex_get_stb_len_bytes();
     msg_cap = api->kex_get_total_msg_len_bytes();
     ss_cap = api->kex_get_ss_len_bytes();
-    if (!ngcc_is_valid_len(pk_cap) || !ngcc_is_valid_len(sk_cap) || !ngcc_is_valid_len(sta_cap) || !ngcc_is_valid_len(stb_cap) ||
-        !ngcc_is_valid_len(msg_cap) || !ngcc_is_valid_len(ss_cap)) {
-        rc = -1;
-        goto out;
+    if (!ngcc_is_valid_len(pk_cap) || !ngcc_is_valid_len(sk_cap) || !ngcc_is_valid_len(sta_cap) ||
+        !ngcc_is_valid_len(stb_cap) || !ngcc_is_valid_len(msg_cap) || !ngcc_is_valid_len(ss_cap)) {
+        return -1;
     }
 
     ss_out = (unsigned char *) malloc((size_t) ss_cap);
     if (ss_out == NULL) {
-        rc = -1;
-        goto out;
+        return -1;
     }
 
-    for (i = 0; i < kat.count; ++i) {
-        const ngcc_kat_vector_t *vec = &kat.vectors[i];
-        static const char *const k_ska_alias[] = {"SKA", "SK_A"};
-        static const char *const k_pkb_alias[] = {"PKB", "PK_B"};
-        static const char *const k_m2_alias[] = {"M2", "MSG2", "PASS2"};
-        static const char *const k_sta_alias[] = {"STA", "STATEA", "ST_A"};
-        static const char *const k_ssa_alias[] = {"SSA", "SSA_OUT", "SS_A", "SHAREDSECRETA"};
+    for (i = 0; i < kat->count; ++i) {
+        const ngcc_kat_vector_t *vec = &kat->vectors[i];
 
-        static const char *const k_skb_alias[] = {"SKB", "SK_B"};
-        static const char *const k_pka_alias[] = {"PKA", "PK_A"};
-        static const char *const k_m3_alias[] = {"M3", "MSG3", "PASS3"};
-        static const char *const k_stb_alias[] = {"STB", "STATEB", "ST_B"};
-        static const char *const k_ssb_alias[] = {"SSB", "SSB_OUT", "SS_B", "SHAREDSECRETB"};
+        const ngcc_kat_field_t *ska = ngcc_kat_get_field(vec, "SKa");
+        const ngcc_kat_field_t *pkb = ngcc_kat_get_field(vec, "PKb");
+        const ngcc_kat_field_t *pka = ngcc_kat_get_field(vec, "PKa");
+        const ngcc_kat_field_t *skb = ngcc_kat_get_field(vec, "SKb");
+        const ngcc_kat_field_t *ss = ngcc_kat_get_field(vec, "SS");
 
-        const ngcc_kat_field_t *ska = ngcc_kat_get_field_any(vec, k_ska_alias, sizeof(k_ska_alias) / sizeof(k_ska_alias[0]));
-        const ngcc_kat_field_t *pkb = ngcc_kat_get_field_any(vec, k_pkb_alias, sizeof(k_pkb_alias) / sizeof(k_pkb_alias[0]));
-        const ngcc_kat_field_t *m2 = ngcc_kat_get_field_any(vec, k_m2_alias, sizeof(k_m2_alias) / sizeof(k_m2_alias[0]));
-        const ngcc_kat_field_t *sta = ngcc_kat_get_field_any(vec, k_sta_alias, sizeof(k_sta_alias) / sizeof(k_sta_alias[0]));
-        const ngcc_kat_field_t *ssa = ngcc_kat_get_field_any(vec, k_ssa_alias, sizeof(k_ssa_alias) / sizeof(k_ssa_alias[0]));
+        /* ma = last message from A (odd pass), mb = last message from B (even pass),
+         * sta_field = last state of A, stb_field = last state of B.
+         * Initialized to Init_Sta / Init_Stb as defaults for protocols that
+         * derive SS directly from the initial state. */
+        const ngcc_kat_field_t *ma_field = NULL;
+        const ngcc_kat_field_t *mb_field = NULL;
+        const ngcc_kat_field_t *sta_field = ngcc_kat_get_field(vec, "Init_Sta");
+        const ngcc_kat_field_t *stb_field = ngcc_kat_get_field(vec, "Init_Stb");
 
-        const ngcc_kat_field_t *skb = ngcc_kat_get_field_any(vec, k_skb_alias, sizeof(k_skb_alias) / sizeof(k_skb_alias[0]));
-        const ngcc_kat_field_t *pka = ngcc_kat_get_field_any(vec, k_pka_alias, sizeof(k_pka_alias) / sizeof(k_pka_alias[0]));
-        const ngcc_kat_field_t *m3 = ngcc_kat_get_field_any(vec, k_m3_alias, sizeof(k_m3_alias) / sizeof(k_m3_alias[0]));
-        const ngcc_kat_field_t *stb = ngcc_kat_get_field_any(vec, k_stb_alias, sizeof(k_stb_alias) / sizeof(k_stb_alias[0]));
-        const ngcc_kat_field_t *ssb = ngcc_kat_get_field_any(vec, k_ssb_alias, sizeof(k_ssb_alias) / sizeof(k_ssb_alias[0]));
-
-        int has_a = (ska != NULL && pkb != NULL && m2 != NULL && sta != NULL && ssa != NULL);
-        int has_b = (skb != NULL && pka != NULL && m3 != NULL && stb != NULL && ssb != NULL);
+        int has_a = 0;
+        int has_b = 0;
         int case_failed = 0;
+        int len_failed = 0;
+        int pass;
+
+        /* Skip vectors with empty SS (blank template) */
+        if (ss == NULL || ss->data == NULL || ss->len == 0) {
+            continue;
+        }
+
+        /* Scan M1..M{N} and corresponding Pass{N}_Sta / Pass{N}_Stb to
+         * find the last message and state for each party.
+         *   Odd passes (1,3,5...) → message from A, state update for Sta
+         *   Even passes (2,4,6...) → message from B, state update for Stb
+         * Also validate _Len consistency for each populated field. */
+        for (pass = 1; pass <= KEX_MAX_PASS_SCAN; ++pass) {
+            char m_name[16];
+            char m_len_name[24];
+            char st_name[24];
+            char st_len_name[32];
+            const ngcc_kat_field_t *msg;
+            const ngcc_kat_field_t *state;
+
+            snprintf(m_name, sizeof(m_name), "M%d", pass);
+            msg = ngcc_kat_get_field(vec, m_name);
+            if (!kex_field_populated(msg)) {
+                break;  /* no more passes */
+            }
+
+            /* validate M{n}_Len */
+            snprintf(m_len_name, sizeof(m_len_name), "M%d_Len", pass);
+            if (kex_check_field_len(m_name, msg, ngcc_kat_get_field(vec, m_len_name)) != 0) {
+                len_failed = 1;
+                break;
+            }
+
+            if (pass % 2 == 1) {
+                /* Odd pass: message from A */
+                ma_field = msg;
+                snprintf(st_name, sizeof(st_name), "Pass%d_Sta", pass);
+                state = ngcc_kat_get_field(vec, st_name);
+                if (kex_field_populated(state)) {
+                    sta_field = state;
+                    snprintf(st_len_name, sizeof(st_len_name), "Pass%d_Sta_Len", pass);
+                    if (kex_check_field_len(st_name, state, ngcc_kat_get_field(vec, st_len_name)) != 0) {
+                        len_failed = 1;
+                        break;
+                    }
+                }
+            } else {
+                /* Even pass: message from B */
+                mb_field = msg;
+                snprintf(st_name, sizeof(st_name), "Pass%d_Stb", pass);
+                state = ngcc_kat_get_field(vec, st_name);
+                if (kex_field_populated(state)) {
+                    stb_field = state;
+                    snprintf(st_len_name, sizeof(st_len_name), "Pass%d_Stb_Len", pass);
+                    if (kex_check_field_len(st_name, state, ngcc_kat_get_field(vec, st_len_name)) != 0) {
+                        len_failed = 1;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (len_failed) {
+            (*io_failed)++;
+            continue;
+        }
+
+        /* Validate Init_Sta_Len / Init_Stb_Len if present */
+        if (kex_field_populated(ngcc_kat_get_field(vec, "Init_Sta"))) {
+            if (kex_check_field_len("Init_Sta",
+                                    ngcc_kat_get_field(vec, "Init_Sta"),
+                                    ngcc_kat_get_field(vec, "Init_Sta_Len")) != 0) {
+                (*io_failed)++;
+                continue;
+            }
+        }
+        if (kex_field_populated(ngcc_kat_get_field(vec, "Init_Stb"))) {
+            if (kex_check_field_len("Init_Stb",
+                                    ngcc_kat_get_field(vec, "Init_Stb"),
+                                    ngcc_kat_get_field(vec, "Init_Stb_Len")) != 0) {
+                (*io_failed)++;
+                continue;
+            }
+        }
+
+        /* Validate key and SS length fields */
+        if (kex_check_field_len("SKa", ska, ngcc_kat_get_field(vec, "SKa_Len")) != 0 ||
+            kex_check_field_len("PKb", pkb, ngcc_kat_get_field(vec, "PKb_Len")) != 0 ||
+            kex_check_field_len("SKb", skb, ngcc_kat_get_field(vec, "SKb_Len")) != 0 ||
+            kex_check_field_len("PKa", pka, ngcc_kat_get_field(vec, "PKa_Len")) != 0 ||
+            kex_check_field_len("SS", ss, ngcc_kat_get_field(vec, "SS_Len")) != 0) {
+            (*io_failed)++;
+            continue;
+        }
+
+        /* Check if we can verify side A: needs ska, pkb, mb (last B msg), sta */
+        has_a = (kex_field_populated(ska) && kex_field_populated(pkb) &&
+                 kex_field_populated(mb_field) && kex_field_populated(sta_field));
+        /* Check if we can verify side B: needs skb, pka, ma (last A msg), stb */
+        has_b = (kex_field_populated(skb) && kex_field_populated(pka) &&
+                 kex_field_populated(ma_field) && kex_field_populated(stb_field));
 
         if (!has_a && !has_b) {
             continue;
         }
 
-        total++;
+        (*io_total)++;
 
         if (has_a) {
             unsigned long long ss_out_len = ss_cap;
 
-            if (ska->len == 0 || ska->len > sk_cap ||
-                pkb->len == 0 || pkb->len > pk_cap ||
-                m2->len == 0 || m2->len > msg_cap ||
-                sta->len == 0 || sta->len > sta_cap ||
-                ssa->len == 0 || ssa->len > ss_cap) {
+            if (ska->len > sk_cap || pkb->len > pk_cap ||
+                mb_field->len > msg_cap || sta_field->len > sta_cap ||
+                ss->len > ss_cap) {
                 case_failed = 1;
             } else if (api->kex_derive_ss_a((unsigned char *) ska->data,
                                             (unsigned long long) ska->len,
                                             (unsigned char *) pkb->data,
                                             (unsigned long long) pkb->len,
-                                            (unsigned char *) m2->data,
-                                            (unsigned long long) m2->len,
-                                            (unsigned char *) sta->data,
-                                            (unsigned long long) sta->len,
+                                            (unsigned char *) mb_field->data,
+                                            (unsigned long long) mb_field->len,
+                                            (unsigned char *) sta_field->data,
+                                            (unsigned long long) sta_field->len,
                                             ss_out,
                                             &ss_out_len) != 0) {
                 case_failed = 1;
-            } else if (ss_out_len != (unsigned long long) ssa->len ||
-                       memcmp(ss_out, ssa->data, ssa->len) != 0) {
+            } else if (ss_out_len != (unsigned long long) ss->len ||
+                       memcmp(ss_out, ss->data, ss->len) != 0) {
                 case_failed = 1;
             }
         }
@@ -339,41 +464,112 @@ int ngcc_kex_correctness_kat_file(const ngcc_api_t *api,
         if (!case_failed && has_b) {
             unsigned long long ss_out_len = ss_cap;
 
-            if (skb->len == 0 || skb->len > sk_cap ||
-                pka->len == 0 || pka->len > pk_cap ||
-                m3->len == 0 || m3->len > msg_cap ||
-                stb->len == 0 || stb->len > stb_cap ||
-                ssb->len == 0 || ssb->len > ss_cap) {
+            if (skb->len > sk_cap || pka->len > pk_cap ||
+                ma_field->len > msg_cap || stb_field->len > stb_cap ||
+                ss->len > ss_cap) {
                 case_failed = 1;
             } else if (api->kex_derive_ss_b((unsigned char *) skb->data,
                                             (unsigned long long) skb->len,
                                             (unsigned char *) pka->data,
                                             (unsigned long long) pka->len,
-                                            (unsigned char *) m3->data,
-                                            (unsigned long long) m3->len,
-                                            (unsigned char *) stb->data,
-                                            (unsigned long long) stb->len,
+                                            (unsigned char *) ma_field->data,
+                                            (unsigned long long) ma_field->len,
+                                            (unsigned char *) stb_field->data,
+                                            (unsigned long long) stb_field->len,
                                             ss_out,
                                             &ss_out_len) != 0) {
                 case_failed = 1;
-            } else if (ss_out_len != (unsigned long long) ssb->len ||
-                       memcmp(ss_out, ssb->data, ssb->len) != 0) {
+            } else if (ss_out_len != (unsigned long long) ss->len ||
+                       memcmp(ss_out, ss->data, ss->len) != 0) {
                 case_failed = 1;
             }
         }
 
         if (case_failed) {
-            failed++;
+            (*io_failed)++;
         } else {
-            passed++;
+            (*io_passed)++;
         }
     }
 
-    if (total > 0) {
-        rc = (failed == 0) ? 0 : -1;
+    free(ss_out);
+    return 0;
+}
+
+int ngcc_kex_correctness_kat_file(const ngcc_api_t *api,
+                                  const char *kat_path,
+                                  unsigned long long *out_total,
+                                  unsigned long long *out_passed,
+                                  unsigned long long *out_failed) {
+    DIR *dir;
+    struct dirent *entry;
+    unsigned long long total = 0;
+    unsigned long long passed = 0;
+    unsigned long long failed = 0;
+    int file_count = 0;
+    int rc = -1;
+
+    if (api == NULL || kat_path == NULL) {
+        return -1;
     }
 
-out:
+    if (!path_is_directory_kex(kat_path)) {
+        fprintf(stderr, "[kex][kat] error: --kat path is not a directory: %s\n", kat_path);
+        return -1;
+    }
+
+    dir = opendir(kat_path);
+    if (dir == NULL) {
+        fprintf(stderr, "[kex][kat] error: cannot open directory: %s\n", kat_path);
+        return -1;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        ngcc_kat_file_t kat;
+        char file_path[2048];
+        int len;
+
+        if (entry->d_name[0] == '.') {
+            continue;
+        }
+        len = snprintf(file_path, sizeof(file_path), "%s/%s", kat_path, entry->d_name);
+        if (len < 0 || len >= (int) sizeof(file_path)) {
+            continue;
+        }
+        if (path_is_directory_kex(file_path)) {
+            continue;
+        }
+
+        if (strncmp(entry->d_name, "KAT_KEX_", 8) != 0) {
+            fprintf(stderr, "[kex][kat] error: unrecognized KAT file: %s\n", entry->d_name);
+            closedir(dir);
+            goto done;
+        }
+
+        memset(&kat, 0, sizeof(kat));
+        if (ngcc_kat_parse_file(file_path, &kat) != 0) {
+            fprintf(stderr, "[kex][kat] error: failed to parse %s\n", entry->d_name);
+            closedir(dir);
+            goto done;
+        }
+
+        file_count++;
+        printf("[kex][kat] testing %s (%zu vectors) ...\n", entry->d_name, kat.count);
+        verify_kex_kat_vectors(api, &kat, &total, &passed, &failed);
+        printf("[kex][kat] %s: total=%llu passed=%llu failed=%llu\n",
+               entry->d_name, total, passed, failed);
+        ngcc_kat_free(&kat);
+    }
+    closedir(dir);
+
+    if (file_count == 0) {
+        fprintf(stderr, "[kex][kat] error: no KAT_KEX_ files found in: %s\n", kat_path);
+        goto done;
+    }
+
+    rc = (total > 0 && failed == 0) ? 0 : -1;
+
+done:
     if (out_total != NULL) {
         *out_total = total;
     }
@@ -383,8 +579,6 @@ out:
     if (out_failed != NULL) {
         *out_failed = failed;
     }
-    free(ss_out);
-    ngcc_kat_free(&kat);
     return rc;
 }
 

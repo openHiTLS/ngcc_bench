@@ -51,15 +51,22 @@ static int key_has_space(const char *name) {
     return 0;
 }
 
+static int key_is_len_field(const char *name) {
+    if (name == NULL || *name == '\0') {
+        return 0;
+    }
+    if (strstr(name, "LEN") != NULL || strstr(name, "Len") != NULL || strstr(name, "len") != NULL) {
+        return 1;
+    }
+    return 0;
+}
+
 static int key_is_metadata(const char *name) {
     if (name == NULL || *name == '\0') {
         return 0;
     }
     if (key_equals_ci(name, "COUNT") || key_equals_ci(name, "SEED") || key_equals_ci(name, "COMMENT") ||
         key_equals_ci(name, "ALGORITHM") || key_equals_ci(name, "ALG") || key_equals_ci(name, "ID")) {
-        return 1;
-    }
-    if (strstr(name, "LEN") != NULL || strstr(name, "Len") != NULL || strstr(name, "len") != NULL) {
         return 1;
     }
     return 0;
@@ -114,7 +121,7 @@ static int parse_hex_bytes(const char *hex, unsigned char **out_buf, size_t *out
 
     for (i = 0; i < in_len; ++i) {
         char c = hex[i];
-        if (isspace((unsigned char) c) || c == ':' || c == '_') {
+        if (isspace((unsigned char) c) || c == ':' || c == '_' || c == '.') {
             continue;
         }
         if (c == '0' && i + 1U < in_len && (hex[i + 1U] == 'x' || hex[i + 1U] == 'X')) {
@@ -363,6 +370,34 @@ int ngcc_kat_parse_file(const char *path, ngcc_kat_file_t *out_kat) {
         } else {
             unsigned char *buf = NULL;
             size_t len = 0;
+
+            /* Len fields (e.g. Msg_Len, Dst_Len) are decimal integers;
+               store them as 8-byte big-endian so callers can extract the value. */
+            if (key_is_len_field(key)) {
+                char *end = NULL;
+                unsigned long long v;
+                unsigned char len_buf[8];
+
+                if (*value == '\0') {
+                    continue;
+                }
+                v = strtoull(value, &end, 10);
+                if (end == NULL || *end != '\0') {
+                    continue;
+                }
+                len_buf[0] = (unsigned char)((v >> 56) & 0xFF);
+                len_buf[1] = (unsigned char)((v >> 48) & 0xFF);
+                len_buf[2] = (unsigned char)((v >> 40) & 0xFF);
+                len_buf[3] = (unsigned char)((v >> 32) & 0xFF);
+                len_buf[4] = (unsigned char)((v >> 24) & 0xFF);
+                len_buf[5] = (unsigned char)((v >> 16) & 0xFF);
+                len_buf[6] = (unsigned char)((v >> 8) & 0xFF);
+                len_buf[7] = (unsigned char)(v & 0xFF);
+                if (builder_set_field(&builder, key, len_buf, 8) != 0) {
+                    goto out;
+                }
+                continue;
+            }
 
             if (parse_hex_bytes(value, &buf, &len) != 0) {
                 if (key_is_metadata(key)) {
