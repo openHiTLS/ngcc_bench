@@ -172,6 +172,11 @@ static int verify_kat_vectors(const ngcc_api_t *api,
 
         /* Determine message data */
         msg_data = NULL;
+        if (msg_len_bits_val > (NGCC_MAX_BUFFER_LEN * 8ULL)) {
+            fprintf(stderr, "[hash][kat] error: Msg_Len=%llu bits exceeds maximum buffer size\n", msg_len_bits_val);
+            any_fail = 1;
+            continue;
+        }
         msg_data_bytes = (size_t) ((msg_len_bits_val + 7) / 8);
 
         if (msg_seed_f != NULL && msg_seed_f->data != NULL && msg_seed_f->len > 0) {
@@ -328,9 +333,9 @@ static int verify_kat_loop(const ngcc_api_t *api,
     digest_len = (size_t) ((digest_len_bits + 7) / 8);
     msg_bytes = (size_t) ((msg_len_bits_val + 7) / 8);
 
-    if (msg_bytes == 0 || digest_len == 0 || digest_len > msg_bytes) {
-        fprintf(stderr, "[hash][kat_loop] error: invalid Msg_Len=%llu or Dst_Len=%d\n",
-                msg_len_bits_val, dst_len_bits_val);
+    if (msg_bytes == 0 || msg_bytes > NGCC_MAX_BUFFER_LEN || digest_len == 0 || digest_len > msg_bytes) {
+        fprintf(stderr, "[hash][kat_loop] error: invalid Msg_Len=%llu or Dst_Len=%d (msg_bytes=%zu exceeds max)\n",
+            msg_len_bits_val, dst_len_bits_val, msg_bytes);
         return -1;
     }
 

@@ -210,6 +210,8 @@ static int verify_kem_kat_vectors(const ngcc_api_t *api,
             continue;
         }
 
+        (*io_total)++;
+
         /* Validate _Len fields match actual data length */
         if (kem_check_field_len("SK", sk, ngcc_kat_get_field(vec, "SK_Len")) != 0 ||
             kem_check_field_len("CT", ct, ngcc_kat_get_field(vec, "CT_Len")) != 0 ||
@@ -217,8 +219,6 @@ static int verify_kem_kat_vectors(const ngcc_api_t *api,
             (*io_failed)++;
             continue;
         }
-
-        (*io_total)++;
         if (sk->len > sk_cap || ct->len > ct_cap || ss->len > ss_cap) {
             (*io_failed)++;
             continue;

@@ -391,6 +391,8 @@ static int verify_kex_kat_vectors(const ngcc_api_t *api,
             }
         }
 
+        (*io_total)++;
+
         if (len_failed) {
             (*io_failed)++;
             continue;
@@ -432,10 +434,9 @@ static int verify_kex_kat_vectors(const ngcc_api_t *api,
                  kex_field_populated(ma_field) && kex_field_populated(stb_field));
 
         if (!has_a && !has_b) {
+            (*io_total)--; /* undo: not a testable vector */
             continue;
         }
-
-        (*io_total)++;
 
         if (has_a) {
             unsigned long long ss_out_len = ss_cap;

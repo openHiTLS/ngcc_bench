@@ -337,6 +337,8 @@ static int verify_sig_kat_vectors(const ngcc_api_t *api,
             continue;
         }
 
+        (*io_total)++;
+
         /* Validate _Len fields match actual data length */
         if (sig_check_field_len("PK", pk, ngcc_kat_get_field(vec, "PK_Len")) != 0 ||
             sig_check_field_len("M", msg, ngcc_kat_get_field(vec, "M_Len")) != 0 ||
@@ -344,8 +346,6 @@ static int verify_sig_kat_vectors(const ngcc_api_t *api,
             (*io_failed)++;
             continue;
         }
-
-        (*io_total)++;
         if (pk->len > pk_cap || sn->len > sn_cap || msg->len > NGCC_MAX_BUFFER_LEN) {
             (*io_failed)++;
             continue;
