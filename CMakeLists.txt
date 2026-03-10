@@ -130,6 +130,7 @@ set(NGCC_BENCH_LIB_SOURCES
     ngcc_bench/src/bench_kex.c
     ngcc_bench/src/stability.c
     ngcc_bench/src/kat_parser.c
+    ngcc_bench/src/drng.c
 )
 
 add_executable(ngcc_bench ngcc_bench/src/main.c ${NGCC_BENCH_LIB_SOURCES})

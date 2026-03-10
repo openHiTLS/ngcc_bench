@@ -1,7 +1,10 @@
 #include "bench_sig.h"
 
+#include <dirent.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "bench_core.h"
 #include "kat_parser.h"
@@ -263,52 +266,88 @@ out:
     return rc;
 }
 
-int ngcc_dsa_verify_correctness_kat_file(const ngcc_api_t *api,
-                                         const char *kat_path,
-                                         unsigned long long *out_total,
-                                         unsigned long long *out_passed,
-                                         unsigned long long *out_failed) {
-    ngcc_kat_file_t kat;
+static unsigned long long sig_field_to_u64(const ngcc_kat_field_t *f) {
+    unsigned long long v = 0;
+    size_t i;
+    if (f == NULL || f->data == NULL || f->len != 8) {
+        return 0;
+    }
+    for (i = 0; i < 8; i++) {
+        v = (v << 8) | f->data[i];
+    }
+    return v;
+}
+
+static int sig_check_field_len(const char *field_name, const ngcc_kat_field_t *data_field,
+                               const ngcc_kat_field_t *len_field) {
+    unsigned long long expected;
+    if (len_field == NULL || data_field == NULL) {
+        return 0;  /* no len field to validate */
+    }
+    expected = sig_field_to_u64(len_field);
+    if (expected == 0) {
+        return 0;  /* empty len value, skip */
+    }
+    if ((unsigned long long) data_field->len != expected) {
+        fprintf(stderr, "[sig][kat] error: %s length mismatch: "
+                "file says %llu bytes, data has %zu bytes\n",
+                field_name, expected, data_field->len);
+        return -1;
+    }
+    return 0;
+}
+
+static int path_is_directory_sig(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        return 0;
+    }
+    return S_ISDIR(st.st_mode);
+}
+
+static int verify_sig_kat_vectors(const ngcc_api_t *api,
+                                  const ngcc_kat_file_t *kat,
+                                  unsigned long long *io_total,
+                                  unsigned long long *io_passed,
+                                  unsigned long long *io_failed) {
     unsigned long long pk_cap;
     unsigned long long sn_cap;
     size_t i;
-    unsigned long long total = 0;
-    unsigned long long passed = 0;
-    unsigned long long failed = 0;
-    int rc = 1;
-
-    if (api == NULL || kat_path == NULL) {
-        return -1;
-    }
-
-    memset(&kat, 0, sizeof(kat));
-    if (ngcc_kat_parse_file(kat_path, &kat) != 0) {
-        return -1;
-    }
 
     pk_cap = api->sig_get_pk_len_bytes();
     sn_cap = api->sig_get_sn_len_bytes();
     if (!ngcc_is_valid_len(pk_cap) || !ngcc_is_valid_len(sn_cap)) {
-        rc = -1;
-        goto out;
+        return -1;
     }
 
-    for (i = 0; i < kat.count; ++i) {
-        const ngcc_kat_vector_t *vec = &kat.vectors[i];
-        static const char *const k_pk_alias[] = {"PK", "PUBLICKEY"};
-        static const char *const k_msg_alias[] = {"MSG", "INPUT", "M", "MESSAGE"};
-        static const char *const k_sn_alias[] = {"SN", "SIG", "SIGNATURE", "SM", "OUTPUT"};
-        const ngcc_kat_field_t *pk = ngcc_kat_get_field_any(vec, k_pk_alias, sizeof(k_pk_alias) / sizeof(k_pk_alias[0]));
-        const ngcc_kat_field_t *msg = ngcc_kat_get_field_any(vec, k_msg_alias, sizeof(k_msg_alias) / sizeof(k_msg_alias[0]));
-        const ngcc_kat_field_t *sn = ngcc_kat_get_field_any(vec, k_sn_alias, sizeof(k_sn_alias) / sizeof(k_sn_alias[0]));
-        if (pk == NULL || msg == NULL || sn == NULL) {
+    for (i = 0; i < kat->count; ++i) {
+        const ngcc_kat_vector_t *vec = &kat->vectors[i];
+        const ngcc_kat_field_t *pk = ngcc_kat_get_field(vec, "PK");
+        const ngcc_kat_field_t *msg = ngcc_kat_get_field(vec, "M");
+        const ngcc_kat_field_t *sn = ngcc_kat_get_field(vec, "Sn");
+
+        /* Skip vectors with empty output (blank template) */
+        if (pk == NULL || pk->data == NULL || pk->len == 0) {
+            continue;
+        }
+        if (sn == NULL || sn->data == NULL || sn->len == 0) {
+            continue;
+        }
+        if (msg == NULL || msg->data == NULL) {
             continue;
         }
 
-        total++;
-        if (pk->len == 0 || pk->len > pk_cap || msg->len > NGCC_MAX_BUFFER_LEN ||
-            sn->len == 0 || sn->len > sn_cap) {
-            failed++;
+        (*io_total)++;
+
+        /* Validate _Len fields match actual data length */
+        if (sig_check_field_len("PK", pk, ngcc_kat_get_field(vec, "PK_Len")) != 0 ||
+            sig_check_field_len("M", msg, ngcc_kat_get_field(vec, "M_Len")) != 0 ||
+            sig_check_field_len("Sn", sn, ngcc_kat_get_field(vec, "Sn_Len")) != 0) {
+            (*io_failed)++;
+            continue;
+        }
+        if (pk->len > pk_cap || sn->len > sn_cap || msg->len > NGCC_MAX_BUFFER_LEN) {
+            (*io_failed)++;
             continue;
         }
         if (dsa_verify_once(api,
@@ -318,17 +357,89 @@ int ngcc_dsa_verify_correctness_kat_file(const ngcc_api_t *api,
                             (unsigned long long) sn->len,
                             (unsigned char *) msg->data,
                             (unsigned long long) msg->len) != 0) {
-            failed++;
+            (*io_failed)++;
             continue;
         }
-        passed++;
+        (*io_passed)++;
     }
 
-    if (total > 0) {
-        rc = (failed == 0) ? 0 : -1;
+    return 0;
+}
+
+int ngcc_dsa_verify_correctness_kat_file(const ngcc_api_t *api,
+                                         const char *kat_path,
+                                         unsigned long long *out_total,
+                                         unsigned long long *out_passed,
+                                         unsigned long long *out_failed) {
+    DIR *dir;
+    struct dirent *entry;
+    unsigned long long total = 0;
+    unsigned long long passed = 0;
+    unsigned long long failed = 0;
+    int file_count = 0;
+    int rc = -1;
+
+    if (api == NULL || kat_path == NULL) {
+        return -1;
     }
 
-out:
+    if (!path_is_directory_sig(kat_path)) {
+        fprintf(stderr, "[sig][kat] error: --kat path is not a directory: %s\n", kat_path);
+        return -1;
+    }
+
+    dir = opendir(kat_path);
+    if (dir == NULL) {
+        fprintf(stderr, "[sig][kat] error: cannot open directory: %s\n", kat_path);
+        return -1;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        ngcc_kat_file_t kat;
+        char file_path[2048];
+        int len;
+
+        if (entry->d_name[0] == '.') {
+            continue;
+        }
+        len = snprintf(file_path, sizeof(file_path), "%s/%s", kat_path, entry->d_name);
+        if (len < 0 || len >= (int) sizeof(file_path)) {
+            continue;
+        }
+        if (path_is_directory_sig(file_path)) {
+            continue;
+        }
+
+        if (strncmp(entry->d_name, "KAT_SIG_", 8) != 0) {
+            fprintf(stderr, "[sig][kat] error: unrecognized KAT file: %s\n", entry->d_name);
+            closedir(dir);
+            goto done;
+        }
+
+        memset(&kat, 0, sizeof(kat));
+        if (ngcc_kat_parse_file(file_path, &kat) != 0) {
+            fprintf(stderr, "[sig][kat] error: failed to parse %s\n", entry->d_name);
+            closedir(dir);
+            goto done;
+        }
+
+        file_count++;
+        printf("[sig][kat] testing %s (%zu vectors) ...\n", entry->d_name, kat.count);
+        verify_sig_kat_vectors(api, &kat, &total, &passed, &failed);
+        printf("[sig][kat] %s: total=%llu passed=%llu failed=%llu\n",
+               entry->d_name, total, passed, failed);
+        ngcc_kat_free(&kat);
+    }
+    closedir(dir);
+
+    if (file_count == 0) {
+        fprintf(stderr, "[sig][kat] error: no KAT_SIG_ files found in: %s\n", kat_path);
+        goto done;
+    }
+
+    rc = (total > 0 && failed == 0) ? 0 : -1;
+
+done:
     if (out_total != NULL) {
         *out_total = total;
     }
@@ -338,7 +449,6 @@ out:
     if (out_failed != NULL) {
         *out_failed = failed;
     }
-    ngcc_kat_free(&kat);
     return rc;
 }
 

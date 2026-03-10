@@ -141,7 +141,7 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
     out_result->iterations = cfg->iterations;
     out_result->warmup_iterations = warmup;
 
-    if (cycle_counter_open(&counter, cfg->cycles_enabled) != 0) {
+    if (cycle_counter_open(&counter, 1) != 0) {
         if (!g_cycles_warning_printed) {
             fprintf(stderr, "[WARN][bench] cycle counter unavailable, falling back to time-only metrics\n");
             g_cycles_warning_printed = 1;

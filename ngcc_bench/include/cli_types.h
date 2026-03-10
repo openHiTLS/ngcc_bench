@@ -21,8 +21,13 @@
 #define TEST_MASK_KEX         (1U << 9)
 #define TEST_MASK_ALL  (TEST_MASK_HASH | TEST_MASK_DSA | TEST_MASK_KEM | TEST_MASK_KEX)
 
-#define NGCC_NUM_TESTS     10
-#define NGCC_PATH_BUF_SIZE 1024
+#define NGCC_NUM_TESTS       10
+#define NGCC_PATH_BUF_SIZE   1024
+#define NGCC_PERF_ITERATIONS 10000
+#define NGCC_STABILITY_MSG_LEN 131072
+
+static const size_t k_msg_lens[] = {1024, 4096, 131072, 1048576};
+#define NGCC_NUM_MSG_LENS (sizeof(k_msg_lens) / sizeof(k_msg_lens[0]))
 
 /* ── Mode mask ─────────────────────────────────────────────────── */
 #define MODE_MASK_CORRECTNESS (1U << 0)
@@ -53,11 +58,8 @@ typedef struct {
     const char *kat_path;
     unsigned int test_mask;
     unsigned int mode_mask;
-    unsigned long long iterations;
-    double duration_hours;
-    size_t msg_len;
     int digest_len_bits;
-    int cycles_enabled;
+    double duration_hours;
     unsigned long long stability_max_cases;
     double stability_sample_ms;
     ngcc_stability_thresholds_t stability_thresholds;
@@ -85,7 +87,8 @@ typedef struct {
     run_status_t correctness_status;
     run_status_t performance_status;
     run_status_t stability_status;
-    ngcc_perf_result_t performance;
+    ngcc_perf_result_t performance[NGCC_NUM_MSG_LENS];
+    int performance_count;  /* how many msg_lens actually ran */
     ngcc_stability_result_t stability;
     int kat_used;
     unsigned long long kat_total;

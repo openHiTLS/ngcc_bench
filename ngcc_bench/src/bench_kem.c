@@ -1,7 +1,10 @@
 #include "bench_kem.h"
 
+#include <dirent.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "bench_core.h"
 #include "kat_parser.h"
@@ -127,63 +130,97 @@ out:
     return rc;
 }
 
-int ngcc_kem_correctness_kat_file(const ngcc_api_t *api,
-                                  const char *kat_path,
-                                  unsigned long long *out_total,
-                                  unsigned long long *out_passed,
-                                  unsigned long long *out_failed) {
-    ngcc_kat_file_t kat;
+static unsigned long long kem_field_to_u64(const ngcc_kat_field_t *f) {
+    unsigned long long v = 0;
+    size_t i;
+    if (f == NULL || f->data == NULL || f->len != 8) {
+        return 0;
+    }
+    for (i = 0; i < 8; i++) {
+        v = (v << 8) | f->data[i];
+    }
+    return v;
+}
+
+static int kem_check_field_len(const char *field_name, const ngcc_kat_field_t *data_field,
+                               const ngcc_kat_field_t *len_field) {
+    unsigned long long expected;
+    if (len_field == NULL || data_field == NULL) {
+        return 0;
+    }
+    expected = kem_field_to_u64(len_field);
+    if (expected == 0) {
+        return 0;
+    }
+    if ((unsigned long long) data_field->len != expected) {
+        fprintf(stderr, "[kem][kat] error: %s length mismatch: "
+                "file says %llu bytes, data has %zu bytes\n",
+                field_name, expected, data_field->len);
+        return -1;
+    }
+    return 0;
+}
+
+static int path_is_directory_kem(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        return 0;
+    }
+    return S_ISDIR(st.st_mode);
+}
+
+static int verify_kem_kat_vectors(const ngcc_api_t *api,
+                                  const ngcc_kat_file_t *kat,
+                                  unsigned long long *io_total,
+                                  unsigned long long *io_passed,
+                                  unsigned long long *io_failed) {
     unsigned long long sk_cap;
     unsigned long long ct_cap;
     unsigned long long ss_cap;
     unsigned char *ss_out = NULL;
     size_t i;
-    unsigned long long total = 0;
-    unsigned long long passed = 0;
-    unsigned long long failed = 0;
-    int rc = 1;
-
-    if (api == NULL || kat_path == NULL) {
-        return -1;
-    }
-
-    memset(&kat, 0, sizeof(kat));
-    if (ngcc_kat_parse_file(kat_path, &kat) != 0) {
-        return -1;
-    }
 
     sk_cap = api->kem_get_sk_len_bytes();
     ct_cap = api->kem_get_ct_len_bytes();
     ss_cap = api->kem_get_ss_len_bytes();
     if (!ngcc_is_valid_len(sk_cap) || !ngcc_is_valid_len(ct_cap) || !ngcc_is_valid_len(ss_cap)) {
-        rc = -1;
-        goto out;
+        return -1;
     }
 
     ss_out = (unsigned char *) malloc((size_t) ss_cap);
     if (ss_out == NULL) {
-        rc = -1;
-        goto out;
+        return -1;
     }
 
-    for (i = 0; i < kat.count; ++i) {
-        const ngcc_kat_vector_t *vec = &kat.vectors[i];
-        static const char *const k_sk_alias[] = {"SK", "SECRETKEY"};
-        static const char *const k_ct_alias[] = {"CT", "CIPHERTEXT"};
-        static const char *const k_ss_alias[] = {"SS", "SHAREDSECRET", "OUTPUT"};
-        const ngcc_kat_field_t *sk = ngcc_kat_get_field_any(vec, k_sk_alias, sizeof(k_sk_alias) / sizeof(k_sk_alias[0]));
-        const ngcc_kat_field_t *ct = ngcc_kat_get_field_any(vec, k_ct_alias, sizeof(k_ct_alias) / sizeof(k_ct_alias[0]));
-        const ngcc_kat_field_t *ss = ngcc_kat_get_field_any(vec, k_ss_alias, sizeof(k_ss_alias) / sizeof(k_ss_alias[0]));
+    for (i = 0; i < kat->count; ++i) {
+        const ngcc_kat_vector_t *vec = &kat->vectors[i];
+        const ngcc_kat_field_t *sk = ngcc_kat_get_field(vec, "SK");
+        const ngcc_kat_field_t *ct = ngcc_kat_get_field(vec, "CT");
+        const ngcc_kat_field_t *ss = ngcc_kat_get_field(vec, "SS");
         unsigned long long ss_out_len = ss_cap;
-        if (sk == NULL || ct == NULL || ss == NULL) {
+
+        /* Skip vectors with empty output (blank template) */
+        if (sk == NULL || sk->data == NULL || sk->len == 0) {
+            continue;
+        }
+        if (ct == NULL || ct->data == NULL || ct->len == 0) {
+            continue;
+        }
+        if (ss == NULL || ss->data == NULL || ss->len == 0) {
             continue;
         }
 
-        total++;
-        if (sk->len == 0 || sk->len > sk_cap ||
-            ct->len == 0 || ct->len > ct_cap ||
-            ss->len == 0 || ss->len > ss_cap) {
-            failed++;
+        (*io_total)++;
+
+        /* Validate _Len fields match actual data length */
+        if (kem_check_field_len("SK", sk, ngcc_kat_get_field(vec, "SK_Len")) != 0 ||
+            kem_check_field_len("CT", ct, ngcc_kat_get_field(vec, "CT_Len")) != 0 ||
+            kem_check_field_len("SS", ss, ngcc_kat_get_field(vec, "SS_Len")) != 0) {
+            (*io_failed)++;
+            continue;
+        }
+        if (sk->len > sk_cap || ct->len > ct_cap || ss->len > ss_cap) {
+            (*io_failed)++;
             continue;
         }
 
@@ -193,24 +230,97 @@ int ngcc_kem_correctness_kat_file(const ngcc_api_t *api,
                          (unsigned long long) ct->len,
                          ss_out,
                          &ss_out_len) != 0) {
-            failed++;
+            (*io_failed)++;
             continue;
         }
 
         if (ss_out_len != (unsigned long long) ss->len ||
             memcmp(ss_out, ss->data, ss->len) != 0) {
-            failed++;
+            (*io_failed)++;
             continue;
         }
 
-        passed++;
+        (*io_passed)++;
     }
 
-    if (total > 0) {
-        rc = (failed == 0) ? 0 : -1;
+    free(ss_out);
+    return 0;
+}
+
+int ngcc_kem_correctness_kat_file(const ngcc_api_t *api,
+                                  const char *kat_path,
+                                  unsigned long long *out_total,
+                                  unsigned long long *out_passed,
+                                  unsigned long long *out_failed) {
+    DIR *dir;
+    struct dirent *entry;
+    unsigned long long total = 0;
+    unsigned long long passed = 0;
+    unsigned long long failed = 0;
+    int file_count = 0;
+    int rc = -1;
+
+    if (api == NULL || kat_path == NULL) {
+        return -1;
     }
 
-out:
+    if (!path_is_directory_kem(kat_path)) {
+        fprintf(stderr, "[kem][kat] error: --kat path is not a directory: %s\n", kat_path);
+        return -1;
+    }
+
+    dir = opendir(kat_path);
+    if (dir == NULL) {
+        fprintf(stderr, "[kem][kat] error: cannot open directory: %s\n", kat_path);
+        return -1;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        ngcc_kat_file_t kat;
+        char file_path[2048];
+        int len;
+
+        if (entry->d_name[0] == '.') {
+            continue;
+        }
+        len = snprintf(file_path, sizeof(file_path), "%s/%s", kat_path, entry->d_name);
+        if (len < 0 || len >= (int) sizeof(file_path)) {
+            continue;
+        }
+        if (path_is_directory_kem(file_path)) {
+            continue;
+        }
+
+        if (strncmp(entry->d_name, "KAT_KEM_", 8) != 0) {
+            fprintf(stderr, "[kem][kat] error: unrecognized KAT file: %s\n", entry->d_name);
+            closedir(dir);
+            goto done;
+        }
+
+        memset(&kat, 0, sizeof(kat));
+        if (ngcc_kat_parse_file(file_path, &kat) != 0) {
+            fprintf(stderr, "[kem][kat] error: failed to parse %s\n", entry->d_name);
+            closedir(dir);
+            goto done;
+        }
+
+        file_count++;
+        printf("[kem][kat] testing %s (%zu vectors) ...\n", entry->d_name, kat.count);
+        verify_kem_kat_vectors(api, &kat, &total, &passed, &failed);
+        printf("[kem][kat] %s: total=%llu passed=%llu failed=%llu\n",
+               entry->d_name, total, passed, failed);
+        ngcc_kat_free(&kat);
+    }
+    closedir(dir);
+
+    if (file_count == 0) {
+        fprintf(stderr, "[kem][kat] error: no KAT_KEM_ files found in: %s\n", kat_path);
+        goto done;
+    }
+
+    rc = (total > 0 && failed == 0) ? 0 : -1;
+
+done:
     if (out_total != NULL) {
         *out_total = total;
     }
@@ -220,8 +330,6 @@ out:
     if (out_failed != NULL) {
         *out_failed = failed;
     }
-    free(ss_out);
-    ngcc_kat_free(&kat);
     return rc;
 }
 

@@ -256,13 +256,9 @@ int write_json_report(const cli_options_t *opts,
     jw_begin_object(&w, "options");
     jw_key_llu(&w, "test_mask", opts->test_mask);
     jw_key_llu(&w, "mode_mask", opts->mode_mask);
-    jw_key_llu(&w, "iterations", opts->iterations);
     jw_key_double(&w, "duration_hours", opts->duration_hours);
     jw_key_llu(&w, "stability_max_cases", opts->stability_max_cases);
     jw_key_double(&w, "stability_sample_ms", opts->stability_sample_ms);
-    jw_key_llu(&w, "msg_len", (unsigned long long) opts->msg_len);
-    jw_key_int(&w, "digest_len_bits", opts->digest_len_bits);
-    jw_key_str(&w, "cycles", opts->cycles_enabled ? "on" : "off");
 
     jw_begin_object(&w, "stability_thresholds");
     jw_key_double(&w, "stable_throughput_cv_percent", opts->stability_thresholds.stable_throughput_cv_percent);
@@ -306,30 +302,35 @@ int write_json_report(const cli_options_t *opts,
             jw_key_null(&w, "kat");
         }
 
-        /* performance_metrics */
-        if (test->performance_status == STATUS_PASS) {
+        /* performance_metrics — one object per msg_len */
+        if (test->performance_status == STATUS_PASS && test->performance_count > 0) {
+            int pi;
             jw_begin_object(&w, "performance_metrics");
-            /* basic config */
-            jw_key_llu(&w, "iterations", test->performance.iterations);
-            jw_key_llu(&w, "warmup_iterations", test->performance.warmup_iterations);
-            jw_key_double(&w, "elapsed_ms", test->performance.elapsed_ms);
-            jw_key_double(&w, "bytes_per_op", test->performance.bytes_per_op);
-            /* cpu cycles */
-            jw_key_double(&w, "cycles_per_op", test->performance.cycles_per_op);
-            jw_key_double(&w, "cycles_stddev", test->performance.cycles_stddev);
-            jw_key_double(&w, "cycles_min", test->performance.cycles_min);
-            jw_key_double(&w, "cycles_max", test->performance.cycles_max);
-            jw_key_double(&w, "cycles_median", test->performance.cycles_median);
-            jw_key_double(&w, "cycles_per_byte", test->performance.cycles_per_byte);
-            jw_key_double(&w, "cycles_cv_percent", test->performance.cycles_cv_percent);
-            /* throughput */
-            jw_key_double(&w, "ops_per_sec", test->performance.ops_per_sec);
-            jw_key_double(&w, "bytes_per_sec", test->performance.bytes_per_sec);
-            /* time */
-            jw_key_double(&w, "time_ms_mean", test->performance.time_ms_mean);
-            jw_key_double(&w, "time_ms_median", test->performance.time_ms_median);
-            jw_key_double(&w, "time_ms_stddev", test->performance.time_ms_stddev);
-            jw_key_double(&w, "time_ms_cv_percent", test->performance.time_ms_cv_percent);
+            for (pi = 0; pi < test->performance_count; ++pi) {
+                const ngcc_perf_result_t *p = &test->performance[pi];
+                char key[32];
+                snprintf(key, sizeof(key), "%zuB", k_msg_lens[pi]);
+                jw_begin_object(&w, key);
+                jw_key_llu(&w, "msg_len", (unsigned long long) k_msg_lens[pi]);
+                jw_key_llu(&w, "iterations", p->iterations);
+                jw_key_llu(&w, "warmup_iterations", p->warmup_iterations);
+                jw_key_double(&w, "elapsed_ms", p->elapsed_ms);
+                jw_key_double(&w, "bytes_per_op", p->bytes_per_op);
+                jw_key_double(&w, "cycles_per_op", p->cycles_per_op);
+                jw_key_double(&w, "cycles_stddev", p->cycles_stddev);
+                jw_key_double(&w, "cycles_min", p->cycles_min);
+                jw_key_double(&w, "cycles_max", p->cycles_max);
+                jw_key_double(&w, "cycles_median", p->cycles_median);
+                jw_key_double(&w, "cycles_per_byte", p->cycles_per_byte);
+                jw_key_double(&w, "cycles_cv_percent", p->cycles_cv_percent);
+                jw_key_double(&w, "ops_per_sec", p->ops_per_sec);
+                jw_key_double(&w, "bytes_per_sec", p->bytes_per_sec);
+                jw_key_double(&w, "time_ms_mean", p->time_ms_mean);
+                jw_key_double(&w, "time_ms_median", p->time_ms_median);
+                jw_key_double(&w, "time_ms_stddev", p->time_ms_stddev);
+                jw_key_double(&w, "time_ms_cv_percent", p->time_ms_cv_percent);
+                jw_end_object(&w);
+            }
             jw_end_object(&w);
         } else {
             jw_key_null(&w, "performance_metrics");
