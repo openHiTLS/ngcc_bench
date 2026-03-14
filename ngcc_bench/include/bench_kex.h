@@ -10,8 +10,9 @@ int ngcc_kex_correctness_kat_file(const ngcc_api_t *api,
                                   unsigned long long *out_total,
                                   unsigned long long *out_passed,
                                   unsigned long long *out_failed);
-int ngcc_kex_performance(const ngcc_api_t *api,
-                         const ngcc_perf_config_t *cfg,
-                         ngcc_perf_result_t *out_result);
+int ngcc_kex_derive_ss_performance(const ngcc_api_t *api,
+                                   const ngcc_perf_config_t *cfg,
+                                   ngcc_perf_result_t *out_a,
+                                   ngcc_perf_result_t *out_b);
 
 #endif

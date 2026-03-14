@@ -142,8 +142,7 @@ int run_interactive_setup(cli_options_t *opts,
                           char *json_buf,
                           size_t json_buf_len) {
     static const char *const test_items[] = {
-        "hash", "dsa", "dsa-keygen", "dsa-sig", "dsa-verify",
-        "kem", "kem-keygen", "kem-encap", "kem-decap", "kex", "all"
+        "hash", "sig", "kem", "kex", "all"
     };
     static const char *const mode_items[] = {"correctness", "performance", "memory", "stability", "all"};
     int test_choice;

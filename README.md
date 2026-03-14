@@ -4,13 +4,12 @@
 
 ## 测试目标
 
-- 聚合项：`hash`、`dsa`、`kem`、`kex`
-- 细分项：`dsa-keygen`、`dsa-sig`、`dsa-verify`、`kem-keygen`、`kem-encap`、`kem-decap`
+- 测试目标：`hash`、`sig`、`kem`、`kex`
 
 说明：
-- `dsa` 聚合执行 `keygen + sign + verify`，只输出一个 `dsa` 结果。
-- `kem` 聚合执行 `keygen + encap + decap`，只输出一个 `kem` 结果。
-- `all` 只包含四个聚合项：`hash`、`dsa`、`kem`、`kex`。
+- `sig` 聚合执行 `keygen + sign + verify`；性能测试分别输出 keygen/sign/verify 指标。
+- `kem` 聚合执行 `keygen + encap + decap`；性能测试分别输出 keygen/encap/decap 指标。
+- `all` 包含所有四项：`hash`、`sig`、`kem`、`kex`。
 
 ## 构建
 
@@ -50,15 +49,13 @@ cmake -S . -B build -DIMPL_TYPE=all
 ./build/ngcc_bench --lib /path/to/libalgo.so --test kem --mode correctness
 ```
 
-细分 DSA sign performance：
+SIG performance（子操作分别输出 keygen/sign/verify）：
 
 ```bash
 ./build/ngcc_bench \
   --lib /path/to/libalgo.so \
-  --test dsa-sig \
-  --mode performance \
-  --msg-len 1024 \
-  --iterations 5000
+  --test sig \
+  --mode performance
 ```
 
 包含 hash 的全量聚合测试：
@@ -74,23 +71,23 @@ cmake -S . -B build -DIMPL_TYPE=all
 
 ## 关键参数
 
-- `--test hash|dsa|dsa-keygen|dsa-sig|dsa-verify|kem|kem-keygen|kem-encap|kem-decap|kex|all`
+- `--test hash|sig|kem|kex|all`
 - `--mode correctness|performance|memory|stability|all`
 - `--digest-len-bits BITS`：选中 `hash` 时必填
-- `--msg-len BYTES`：Hash/DSA 消息长度，默认 `1024`
+- `--msg-len BYTES`：Hash/SIG 消息长度，默认 `1024`
 - `--iterations N`：performance 迭代次数，默认 `1000`
 - `--duration-hours H`：stability 最长时长，默认 `6.0`
 - `--stability-max-cases N`：stability 最大 case，默认 `3000`
 - `--stability-sample-ms MS`：stability 采样窗口，默认 `1.0`
 - `--cycles on|off`：是否尝试输出 cycles，默认 `on`
-- `--kat FILE`：仅 correctness 模式有效；支持 `hash`、`dsa-verify`、`kem`、`kex`
+- `--kat FILE`：仅 correctness 模式有效；支持 `hash`、`sig`、`kem`、`kex`
 - `--json-out PATH`：输出 JSON 报告
 
 ## 输出与限制
 
 - `memory` 输出分为 `[memory][static]` 和 `[memory][dynamic]`
 - `stability` 输出 `STABLE` / `WARNING` / `UNSTABLE`，其中 `UNSTABLE` 会导致失败返回码
-- `dsa`、`kem` 聚合项默认不展开打印子步骤
+- `sig`、`kem` 性能测试自动输出子操作指标（keygen/sign/verify, keygen/encap/decap）
 - 加载器按测试目标按需加载符号；未选中的算法符号可以不导出
 - `memory` 指标当前以 Linux 路径最完整；非 Linux 平台上部分字段可能返回 `unavailable` 或 `0`
 - KAT 解析支持 `#` / `;` / `//` 注释、`0x` 前缀和常见字段别名

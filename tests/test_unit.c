@@ -211,7 +211,7 @@ static void test_loader_hash_only_missing_required_symbols(void) {
     ngcc_library_t lib;
 
     TEST_ASSERT(NGCC_UNIT_MOCK_HASH_ONLY[0] != '\0');
-    TEST_ASSERT_INT_EQ(ngcc_load_library(NGCC_UNIT_MOCK_HASH_ONLY, TEST_MASK_DSA, &lib), -1);
+    TEST_ASSERT_INT_EQ(ngcc_load_library(NGCC_UNIT_MOCK_HASH_ONLY, TEST_MASK_SIG, &lib), -1);
     TEST_ASSERT(lib.handle == NULL);
     TEST_ASSERT(lib.api.CryptHash == NULL);
 }
@@ -237,29 +237,11 @@ static void test_parse_test_mask_valid(void) {
     TEST_ASSERT_INT_EQ(parse_test_mask("hash", &mask), 0);
     TEST_ASSERT(mask == TEST_MASK_HASH);
 
-    TEST_ASSERT_INT_EQ(parse_test_mask("dsa", &mask), 0);
-    TEST_ASSERT(mask == TEST_MASK_DSA);
-
-    TEST_ASSERT_INT_EQ(parse_test_mask("dsa-keygen", &mask), 0);
-    TEST_ASSERT(mask == TEST_MASK_DSA_KEYGEN);
-
-    TEST_ASSERT_INT_EQ(parse_test_mask("dsa-sig", &mask), 0);
-    TEST_ASSERT(mask == TEST_MASK_DSA_SIG);
-
-    TEST_ASSERT_INT_EQ(parse_test_mask("dsa-verify", &mask), 0);
-    TEST_ASSERT(mask == TEST_MASK_DSA_VERIFY);
+    TEST_ASSERT_INT_EQ(parse_test_mask("sig", &mask), 0);
+    TEST_ASSERT(mask == TEST_MASK_SIG);
 
     TEST_ASSERT_INT_EQ(parse_test_mask("kem", &mask), 0);
     TEST_ASSERT(mask == TEST_MASK_KEM);
-
-    TEST_ASSERT_INT_EQ(parse_test_mask("kem-keygen", &mask), 0);
-    TEST_ASSERT(mask == TEST_MASK_KEM_KEYGEN);
-
-    TEST_ASSERT_INT_EQ(parse_test_mask("kem-encap", &mask), 0);
-    TEST_ASSERT(mask == TEST_MASK_KEM_ENCAP);
-
-    TEST_ASSERT_INT_EQ(parse_test_mask("kem-decap", &mask), 0);
-    TEST_ASSERT(mask == TEST_MASK_KEM_DECAP);
 
     TEST_ASSERT_INT_EQ(parse_test_mask("kex", &mask), 0);
     TEST_ASSERT(mask == TEST_MASK_KEX);
@@ -272,7 +254,13 @@ static void test_parse_test_mask_invalid(void) {
     unsigned int mask = 0;
     TEST_ASSERT_INT_EQ(parse_test_mask("invalid", &mask), -1);
     TEST_ASSERT_INT_EQ(parse_test_mask("", &mask), -1);
-    TEST_ASSERT_INT_EQ(parse_test_mask("sig", &mask), -1);
+    TEST_ASSERT_INT_EQ(parse_test_mask("dsa", &mask), -1);
+    TEST_ASSERT_INT_EQ(parse_test_mask("sig-keygen", &mask), -1);
+    TEST_ASSERT_INT_EQ(parse_test_mask("sig-sign", &mask), -1);
+    TEST_ASSERT_INT_EQ(parse_test_mask("sig-verify", &mask), -1);
+    TEST_ASSERT_INT_EQ(parse_test_mask("kem-keygen", &mask), -1);
+    TEST_ASSERT_INT_EQ(parse_test_mask("kem-encap", &mask), -1);
+    TEST_ASSERT_INT_EQ(parse_test_mask("kem-decap", &mask), -1);
     TEST_ASSERT_INT_EQ(parse_test_mask("HASH", &mask), -1); /* case-sensitive */
 }
 
@@ -435,8 +423,7 @@ static void test_stability_thresholds_defaults(void) {
 
 static void test_write_json_report_basic(void) {
     static const char *const k_test_names[NGCC_NUM_TESTS] = {
-        "hash", "dsa", "dsa-keygen", "dsa-sig", "dsa-verify",
-        "kem", "kem-keygen", "kem-encap", "kem-decap", "kex"
+        "hash", "sig", "kem", "kex"
     };
     char tmp_dir[] = "/tmp/ngcc_unit_json.XXXXXX";
     char json_path[PATH_MAX];

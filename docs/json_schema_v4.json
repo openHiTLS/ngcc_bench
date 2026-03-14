@@ -101,27 +101,15 @@
       "type": "object",
       "required": [
         "hash",
-        "dsa",
-        "dsa-keygen",
-        "dsa-sig",
-        "dsa-verify",
+        "sig",
         "kem",
-        "kex",
-        "kem-keygen",
-        "kem-encap",
-        "kem-decap"
+        "kex"
       ],
       "properties": {
         "hash": { "$ref": "#/$defs/testResult" },
-        "dsa": { "$ref": "#/$defs/testResult" },
-        "dsa-keygen": { "$ref": "#/$defs/testResult" },
-        "dsa-sig": { "$ref": "#/$defs/testResult" },
-        "dsa-verify": { "$ref": "#/$defs/testResult" },
+        "sig": { "$ref": "#/$defs/testResult" },
         "kem": { "$ref": "#/$defs/testResult" },
-        "kex": { "$ref": "#/$defs/testResult" },
-        "kem-keygen": { "$ref": "#/$defs/testResult" },
-        "kem-encap": { "$ref": "#/$defs/testResult" },
-        "kem-decap": { "$ref": "#/$defs/testResult" }
+        "kex": { "$ref": "#/$defs/testResult" }
       }
     },
     "memory": {

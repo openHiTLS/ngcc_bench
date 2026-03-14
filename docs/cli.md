@@ -5,7 +5,7 @@
 ```bash
 ./build/ngcc_bench \
   --lib /path/to/lib.so \
-  --test hash|dsa|dsa-keygen|dsa-sig|dsa-verify|kem|kem-keygen|kem-encap|kem-decap|kex|all \
+  --test hash|sig|kem|kex|all \
   --mode correctness|performance|memory|stability|all \
   [--iterations N] \
   [--duration-hours H] \
@@ -22,17 +22,11 @@
 
 ## `--test`
 
-- `hash`：Hash 聚合测试
-- `dsa`：聚合执行 `keygen + sign + verify`，只输出一个 `dsa` 结果
-- `dsa-keygen`：仅测 `sig_keygen()`
-- `dsa-sig`：仅测 `sig_sign()`，内部先做一次 keygen
-- `dsa-verify`：仅测 `sig_verify()`，内部先构造有效签名
-- `kem`：聚合执行 `keygen + encap + decap`，只输出一个 `kem` 结果
-- `kem-keygen`：仅测 `kem_keygen()`
-- `kem-encap`：仅测 `kem_enc()`，内部先做一次 keygen
-- `kem-decap`：仅测 `kem_dec()`，内部先做一次 keygen + encap
+- `hash`：Hash 测试
+- `sig`：聚合执行 `keygen + sign + verify`；性能测试分别输出各子操作指标
+- `kem`：聚合执行 `keygen + encap + decap`；性能测试分别输出各子操作指标
 - `kex`：KEX 整体链路测试
-- `all`：只跑 `hash`、`dsa`、`kem`、`kex`
+- `all`：运行所有四项
 
 ## `--mode`
 
@@ -45,7 +39,7 @@
 ## 常用参数
 
 - `--digest-len-bits`：选中 `hash` 时必填
-- `--msg-len`：Hash/DSA 消息长度，默认 `1024`
+- `--msg-len`：Hash/SIG 消息长度，默认 `1024`
 - `--iterations`：performance 迭代次数，默认 `1000`
 - `--duration-hours`：stability 最长时长，默认 `6.0`
 - `--stability-max-cases`：stability 最大 case，默认 `3000`
@@ -59,17 +53,17 @@
 
 支持的测试目标：
 - `hash`
-- `dsa-verify`
+- `sig`
 - `kem`
 - `kex`
 
 说明：
-- `dsa`、`dsa-keygen`、`dsa-sig`、`kem-keygen`、`kem-encap`、`kem-decap` 默认回退到随机 correctness
+- 无可用向量时回退到随机 correctness 检测
 - KAT 支持 `#` / `;` / `//` 注释、`0x` 前缀、空白/`:`/`_` 分隔
 
 常用字段：
 - Hash: `INPUT`/`MSG` + `OUTPUT`/`DIGEST`
-- DSA verify: `PK` + `MSG`/`INPUT` + `SN`/`SIG`/`OUTPUT`
+- SIG verify: `PK` + `MSG`/`INPUT` + `SN`/`SIG`/`OUTPUT`
 - KEM: `SK` + `CT` + `SS`/`OUTPUT`
 - KEX-A: `SKA` + `PKB` + `M2` + `STA` + `SSA`
 - KEX-B: `SKB` + `PKA` + `M3` + `STB` + `SSB`
@@ -90,16 +84,16 @@
 聚合 correctness：
 
 ```text
-[dsa][correctness] PASS
+[sig][correctness] PASS
 [kem][correctness] PASS
 ```
 
-细分 performance：
+子操作 performance：
 
 ```text
-[dsa-keygen][performance] ops=1000 warmup=10 elapsed_ms=0.321 bytes/op=64.000
-[dsa-keygen][performance][throughput] ops/s=3115264.798 bytes/s=199376947.068
-[dsa-keygen][performance][time] mean_ms=0.000321 median_ms=0.000300 stddev_ms=0.000040 cv=12.462%
+[sig][keygen][performance][0B] ops=1000 warmup=10 elapsed_ms=0.321 bytes/op=0.000
+[sig][keygen][performance][0B][throughput] ops/s=3115264.798 bytes/s=0.000
+[sig][keygen][performance][0B][time] mean_ms=0.000321 median_ms=0.000300 stddev_ms=0.000040 cv=12.462%
 ```
 
 stability：

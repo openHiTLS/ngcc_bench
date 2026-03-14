@@ -22,7 +22,7 @@ typedef struct {
     unsigned long long sk_len;
     unsigned long long sn_len;
     unsigned long long msg_len;
-} dsa_ctx_t;
+} sig_ctx_t;
 
 static int validate_sig_caps(unsigned long long pk_cap,
                              unsigned long long sk_cap,
@@ -32,7 +32,7 @@ static int validate_sig_caps(unsigned long long pk_cap,
            ngcc_is_valid_len(sn_cap);
 }
 
-static int dsa_keygen_once(const ngcc_api_t *api,
+static int sig_keygen_once(const ngcc_api_t *api,
                            unsigned char *pk,
                            unsigned long long pk_cap,
                            unsigned long long *pk_len,
@@ -48,7 +48,7 @@ static int dsa_keygen_once(const ngcc_api_t *api,
     return 0;
 }
 
-static int dsa_sign_once(const ngcc_api_t *api,
+static int sig_sign_once(const ngcc_api_t *api,
                          unsigned char *sk,
                          unsigned long long sk_len,
                          unsigned char *msg,
@@ -65,7 +65,7 @@ static int dsa_sign_once(const ngcc_api_t *api,
     return 0;
 }
 
-static int dsa_verify_once(const ngcc_api_t *api,
+static int sig_verify_once(const ngcc_api_t *api,
                            unsigned char *pk,
                            unsigned long long pk_len,
                            unsigned char *sn,
@@ -75,14 +75,14 @@ static int dsa_verify_once(const ngcc_api_t *api,
     return api->sig_verify(pk, pk_len, sn, sn_len, msg, msg_len) == 0 ? 0 : -1;
 }
 
-static int dsa_prepare_sign_case(dsa_ctx_t *ctx) {
+static int sig_prepare_sign_case(sig_ctx_t *ctx) {
     if (ngcc_fill_random(ctx->msg, (size_t) ctx->msg_len) != 0) {
         return -1;
     }
 
     ctx->pk_len = ctx->pk_cap;
     ctx->sk_len = ctx->sk_cap;
-    if (dsa_keygen_once(ctx->api,
+    if (sig_keygen_once(ctx->api,
                         ctx->pk,
                         ctx->pk_cap,
                         &ctx->pk_len,
@@ -93,7 +93,7 @@ static int dsa_prepare_sign_case(dsa_ctx_t *ctx) {
     }
 
     ctx->sn_len = ctx->sn_cap;
-    if (dsa_sign_once(ctx->api,
+    if (sig_sign_once(ctx->api,
                       ctx->sk,
                       ctx->sk_len,
                       ctx->msg,
@@ -107,7 +107,7 @@ static int dsa_prepare_sign_case(dsa_ctx_t *ctx) {
     return 0;
 }
 
-static int alloc_dsa_ctx(const ngcc_api_t *api, size_t msg_len, dsa_ctx_t *out_ctx) {
+static int alloc_sig_ctx(const ngcc_api_t *api, size_t msg_len, sig_ctx_t *out_ctx) {
     if (api == NULL || out_ctx == NULL || msg_len == 0 || msg_len > NGCC_MAX_BUFFER_LEN) {
         return -1;
     }
@@ -139,7 +139,7 @@ static int alloc_dsa_ctx(const ngcc_api_t *api, size_t msg_len, dsa_ctx_t *out_c
     return 0;
 }
 
-static void free_dsa_ctx(dsa_ctx_t *ctx) {
+static void free_sig_ctx(sig_ctx_t *ctx) {
     if (ctx == NULL) {
         return;
     }
@@ -150,119 +150,26 @@ static void free_dsa_ctx(dsa_ctx_t *ctx) {
     memset(ctx, 0, sizeof(*ctx));
 }
 
-int ngcc_dsa_correctness(const ngcc_api_t *api, size_t msg_len) {
-    dsa_ctx_t ctx;
+int ngcc_sig_correctness(const ngcc_api_t *api, size_t msg_len) {
+    sig_ctx_t ctx;
     int rc = -1;
 
-    if (alloc_dsa_ctx(api, msg_len, &ctx) != 0) {
+    if (alloc_sig_ctx(api, msg_len, &ctx) != 0) {
         return -1;
     }
 
-    if (dsa_prepare_sign_case(&ctx) != 0) {
+    if (sig_prepare_sign_case(&ctx) != 0) {
         goto out;
     }
 
-    if (dsa_verify_once(api, ctx.pk, ctx.pk_len, ctx.sn, ctx.sn_len, ctx.msg, ctx.msg_len) != 0) {
+    if (sig_verify_once(api, ctx.pk, ctx.pk_len, ctx.sn, ctx.sn_len, ctx.msg, ctx.msg_len) != 0) {
         goto out;
     }
 
     rc = 0;
 
 out:
-    free_dsa_ctx(&ctx);
-    return rc;
-}
-
-int ngcc_dsa_keygen_correctness(const ngcc_api_t *api) {
-    unsigned long long pk_cap;
-    unsigned long long sk_cap;
-    unsigned long long pk_len;
-    unsigned long long sk_len;
-    unsigned char *pk = NULL;
-    unsigned char *sk = NULL;
-    int rc = -1;
-
-    if (api == NULL) {
-        return -1;
-    }
-
-    pk_cap = api->sig_get_pk_len_bytes();
-    sk_cap = api->sig_get_sk_len_bytes();
-    if (!ngcc_is_valid_len(pk_cap) || !ngcc_is_valid_len(sk_cap)) {
-        return -1;
-    }
-
-    pk = (unsigned char *) malloc((size_t) pk_cap);
-    sk = (unsigned char *) malloc((size_t) sk_cap);
-    if (pk == NULL || sk == NULL) {
-        goto out;
-    }
-
-    pk_len = pk_cap;
-    sk_len = sk_cap;
-    if (dsa_keygen_once(api, pk, pk_cap, &pk_len, sk, sk_cap, &sk_len) != 0) {
-        goto out;
-    }
-
-    rc = 0;
-
-out:
-    free(pk);
-    free(sk);
-    return rc;
-}
-
-int ngcc_dsa_sig_correctness(const ngcc_api_t *api, size_t msg_len) {
-    dsa_ctx_t ctx;
-    int rc = -1;
-
-    if (alloc_dsa_ctx(api, msg_len, &ctx) != 0) {
-        return -1;
-    }
-
-    if (dsa_prepare_sign_case(&ctx) != 0) {
-        goto out;
-    }
-
-    if (dsa_verify_once(api, ctx.pk, ctx.pk_len, ctx.sn, ctx.sn_len, ctx.msg, ctx.msg_len) != 0) {
-        goto out;
-    }
-
-    rc = 0;
-
-out:
-    free_dsa_ctx(&ctx);
-    return rc;
-}
-
-int ngcc_dsa_verify_correctness(const ngcc_api_t *api, size_t msg_len) {
-    dsa_ctx_t ctx;
-    int rc = -1;
-    unsigned char saved_byte;
-
-    if (alloc_dsa_ctx(api, msg_len, &ctx) != 0) {
-        return -1;
-    }
-
-    if (dsa_prepare_sign_case(&ctx) != 0) {
-        goto out;
-    }
-
-    if (dsa_verify_once(api, ctx.pk, ctx.pk_len, ctx.sn, ctx.sn_len, ctx.msg, ctx.msg_len) != 0) {
-        goto out;
-    }
-
-    saved_byte = ctx.msg[0];
-    ctx.msg[0] ^= 0x01U;
-    if (dsa_verify_once(api, ctx.pk, ctx.pk_len, ctx.sn, ctx.sn_len, ctx.msg, ctx.msg_len) == 0) {
-        goto out;
-    }
-    ctx.msg[0] = saved_byte;
-
-    rc = 0;
-
-out:
-    free_dsa_ctx(&ctx);
+    free_sig_ctx(&ctx);
     return rc;
 }
 
@@ -350,7 +257,7 @@ static int verify_sig_kat_vectors(const ngcc_api_t *api,
             (*io_failed)++;
             continue;
         }
-        if (dsa_verify_once(api,
+        if (sig_verify_once(api,
                             (unsigned char *) pk->data,
                             (unsigned long long) pk->len,
                             (unsigned char *) sn->data,
@@ -366,7 +273,7 @@ static int verify_sig_kat_vectors(const ngcc_api_t *api,
     return 0;
 }
 
-int ngcc_dsa_verify_correctness_kat_file(const ngcc_api_t *api,
+int ngcc_sig_verify_correctness_kat_file(const ngcc_api_t *api,
                                          const char *kat_path,
                                          unsigned long long *out_total,
                                          unsigned long long *out_passed,
@@ -452,47 +359,47 @@ done:
     return rc;
 }
 
-static int dsa_perf_op(void *ctx_ptr) {
-    dsa_ctx_t *ctx = (dsa_ctx_t *) ctx_ptr;
+static int sig_perf_op(void *ctx_ptr) {
+    sig_ctx_t *ctx = (sig_ctx_t *) ctx_ptr;
 
-    if (dsa_prepare_sign_case(ctx) != 0) {
+    if (sig_prepare_sign_case(ctx) != 0) {
         return -1;
     }
 
-    return dsa_verify_once(ctx->api, ctx->pk, ctx->pk_len, ctx->sn, ctx->sn_len, ctx->msg, ctx->msg_len);
+    return sig_verify_once(ctx->api, ctx->pk, ctx->pk_len, ctx->sn, ctx->sn_len, ctx->msg, ctx->msg_len);
 }
 
-int ngcc_dsa_performance(const ngcc_api_t *api,
+int ngcc_sig_performance(const ngcc_api_t *api,
                          size_t msg_len,
                          const ngcc_perf_config_t *cfg,
                          ngcc_perf_result_t *out_result) {
-    dsa_ctx_t ctx;
+    sig_ctx_t ctx;
     ngcc_perf_config_t local_cfg;
     int rc = -1;
 
-    if (cfg == NULL || out_result == NULL || alloc_dsa_ctx(api, msg_len, &ctx) != 0) {
+    if (cfg == NULL || out_result == NULL || alloc_sig_ctx(api, msg_len, &ctx) != 0) {
         return -1;
     }
 
     local_cfg = *cfg;
     local_cfg.bytes_per_op = (unsigned long long) msg_len;
-    if (ngcc_run_performance_op(&local_cfg, dsa_perf_op, &ctx, out_result) != 0) {
+    if (ngcc_run_performance_op(&local_cfg, sig_perf_op, &ctx, out_result) != 0) {
         goto out;
     }
 
     rc = 0;
 
 out:
-    free_dsa_ctx(&ctx);
+    free_sig_ctx(&ctx);
     return rc;
 }
 
-static int dsa_keygen_perf_op(void *ctx_ptr) {
-    dsa_ctx_t *ctx = (dsa_ctx_t *) ctx_ptr;
+static int sig_keygen_perf_op(void *ctx_ptr) {
+    sig_ctx_t *ctx = (sig_ctx_t *) ctx_ptr;
 
     ctx->pk_len = ctx->pk_cap;
     ctx->sk_len = ctx->sk_cap;
-    return dsa_keygen_once(ctx->api,
+    return sig_keygen_once(ctx->api,
                            ctx->pk,
                            ctx->pk_cap,
                            &ctx->pk_len,
@@ -501,10 +408,10 @@ static int dsa_keygen_perf_op(void *ctx_ptr) {
                            &ctx->sk_len);
 }
 
-int ngcc_dsa_keygen_performance(const ngcc_api_t *api,
+int ngcc_sig_keygen_performance(const ngcc_api_t *api,
                                 const ngcc_perf_config_t *cfg,
                                 ngcc_perf_result_t *out_result) {
-    dsa_ctx_t ctx;
+    sig_ctx_t ctx;
     ngcc_perf_config_t local_cfg;
     int rc = -1;
 
@@ -529,7 +436,7 @@ int ngcc_dsa_keygen_performance(const ngcc_api_t *api,
 
     local_cfg = *cfg;
     local_cfg.bytes_per_op = ctx.pk_cap + ctx.sk_cap;
-    if (ngcc_run_performance_op(&local_cfg, dsa_keygen_perf_op, &ctx, out_result) != 0) {
+    if (ngcc_run_performance_op(&local_cfg, sig_keygen_perf_op, &ctx, out_result) != 0) {
         goto out;
     }
 
@@ -541,15 +448,15 @@ out:
     return rc;
 }
 
-static int dsa_sig_perf_op(void *ctx_ptr) {
-    dsa_ctx_t *ctx = (dsa_ctx_t *) ctx_ptr;
+static int sig_sign_perf_op(void *ctx_ptr) {
+    sig_ctx_t *ctx = (sig_ctx_t *) ctx_ptr;
 
     if (ngcc_fill_random(ctx->msg, (size_t) ctx->msg_len) != 0) {
         return -1;
     }
 
     ctx->sn_len = ctx->sn_cap;
-    return dsa_sign_once(ctx->api,
+    return sig_sign_once(ctx->api,
                          ctx->sk,
                          ctx->sk_len,
                          ctx->msg,
@@ -559,21 +466,21 @@ static int dsa_sig_perf_op(void *ctx_ptr) {
                          &ctx->sn_len);
 }
 
-int ngcc_dsa_sig_performance(const ngcc_api_t *api,
-                             size_t msg_len,
-                             const ngcc_perf_config_t *cfg,
-                             ngcc_perf_result_t *out_result) {
-    dsa_ctx_t ctx;
+int ngcc_sig_sign_performance(const ngcc_api_t *api,
+                              size_t msg_len,
+                              const ngcc_perf_config_t *cfg,
+                              ngcc_perf_result_t *out_result) {
+    sig_ctx_t ctx;
     ngcc_perf_config_t local_cfg;
     int rc = -1;
 
-    if (alloc_dsa_ctx(api, msg_len, &ctx) != 0 || cfg == NULL || out_result == NULL) {
+    if (alloc_sig_ctx(api, msg_len, &ctx) != 0 || cfg == NULL || out_result == NULL) {
         return -1;
     }
 
     ctx.pk_len = ctx.pk_cap;
     ctx.sk_len = ctx.sk_cap;
-    if (dsa_keygen_once(api,
+    if (sig_keygen_once(api,
                         ctx.pk,
                         ctx.pk_cap,
                         &ctx.pk_len,
@@ -585,47 +492,47 @@ int ngcc_dsa_sig_performance(const ngcc_api_t *api,
 
     local_cfg = *cfg;
     local_cfg.bytes_per_op = (unsigned long long) msg_len;
-    if (ngcc_run_performance_op(&local_cfg, dsa_sig_perf_op, &ctx, out_result) != 0) {
+    if (ngcc_run_performance_op(&local_cfg, sig_sign_perf_op, &ctx, out_result) != 0) {
         goto out;
     }
 
     rc = 0;
 
 out:
-    free_dsa_ctx(&ctx);
+    free_sig_ctx(&ctx);
     return rc;
 }
 
-static int dsa_verify_perf_op(void *ctx_ptr) {
-    dsa_ctx_t *ctx = (dsa_ctx_t *) ctx_ptr;
-    return dsa_verify_once(ctx->api, ctx->pk, ctx->pk_len, ctx->sn, ctx->sn_len, ctx->msg, ctx->msg_len);
+static int sig_verify_perf_op(void *ctx_ptr) {
+    sig_ctx_t *ctx = (sig_ctx_t *) ctx_ptr;
+    return sig_verify_once(ctx->api, ctx->pk, ctx->pk_len, ctx->sn, ctx->sn_len, ctx->msg, ctx->msg_len);
 }
 
-int ngcc_dsa_verify_performance(const ngcc_api_t *api,
+int ngcc_sig_verify_performance(const ngcc_api_t *api,
                                 size_t msg_len,
                                 const ngcc_perf_config_t *cfg,
                                 ngcc_perf_result_t *out_result) {
-    dsa_ctx_t ctx;
+    sig_ctx_t ctx;
     ngcc_perf_config_t local_cfg;
     int rc = -1;
 
-    if (cfg == NULL || out_result == NULL || alloc_dsa_ctx(api, msg_len, &ctx) != 0) {
+    if (cfg == NULL || out_result == NULL || alloc_sig_ctx(api, msg_len, &ctx) != 0) {
         return -1;
     }
 
-    if (dsa_prepare_sign_case(&ctx) != 0) {
+    if (sig_prepare_sign_case(&ctx) != 0) {
         goto out;
     }
 
     local_cfg = *cfg;
     local_cfg.bytes_per_op = (unsigned long long) msg_len;
-    if (ngcc_run_performance_op(&local_cfg, dsa_verify_perf_op, &ctx, out_result) != 0) {
+    if (ngcc_run_performance_op(&local_cfg, sig_verify_perf_op, &ctx, out_result) != 0) {
         goto out;
     }
 
     rc = 0;
 
 out:
-    free_dsa_ctx(&ctx);
+    free_sig_ctx(&ctx);
     return rc;
 }

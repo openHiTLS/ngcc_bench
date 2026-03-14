@@ -39,25 +39,9 @@ static int hash_correctness_dispatch(const ngcc_api_t *api, int digest_len_bits,
     return ngcc_hash_correctness(api, digest_len_bits, msg_len);
 }
 
-static int dsa_correctness_dispatch(const ngcc_api_t *api, int digest_len_bits, size_t msg_len) {
+static int sig_correctness_dispatch(const ngcc_api_t *api, int digest_len_bits, size_t msg_len) {
     (void) digest_len_bits;
-    return ngcc_dsa_correctness(api, msg_len);
-}
-
-static int dsa_keygen_correctness_dispatch(const ngcc_api_t *api, int digest_len_bits, size_t msg_len) {
-    (void) digest_len_bits;
-    (void) msg_len;
-    return ngcc_dsa_keygen_correctness(api);
-}
-
-static int dsa_sig_correctness_dispatch(const ngcc_api_t *api, int digest_len_bits, size_t msg_len) {
-    (void) digest_len_bits;
-    return ngcc_dsa_sig_correctness(api, msg_len);
-}
-
-static int dsa_verify_correctness_dispatch(const ngcc_api_t *api, int digest_len_bits, size_t msg_len) {
-    (void) digest_len_bits;
-    return ngcc_dsa_verify_correctness(api, msg_len);
+    return ngcc_sig_correctness(api, msg_len);
 }
 
 static int kem_correctness_dispatch(const ngcc_api_t *api, int digest_len_bits, size_t msg_len) {
@@ -72,21 +56,6 @@ static int kex_correctness_dispatch(const ngcc_api_t *api, int digest_len_bits, 
     return ngcc_kex_correctness(api);
 }
 
-static int kat_not_supported_dispatch(const ngcc_api_t *api,
-                                      int digest_len_bits,
-                                      const char *kat_path,
-                                      unsigned long long *out_total,
-                                      unsigned long long *out_passed,
-                                      unsigned long long *out_failed) {
-    (void) api;
-    (void) digest_len_bits;
-    (void) kat_path;
-    (void) out_total;
-    (void) out_passed;
-    (void) out_failed;
-    return 1;
-}
-
 static int hash_kat_dispatch(const ngcc_api_t *api,
                              int digest_len_bits,
                              const char *kat_path,
@@ -96,14 +65,14 @@ static int hash_kat_dispatch(const ngcc_api_t *api,
     return ngcc_hash_correctness_kat_file(api, digest_len_bits, kat_path, out_total, out_passed, out_failed);
 }
 
-static int dsa_verify_kat_dispatch(const ngcc_api_t *api,
+static int sig_verify_kat_dispatch(const ngcc_api_t *api,
                                    int digest_len_bits,
                                    const char *kat_path,
                                    unsigned long long *out_total,
                                    unsigned long long *out_passed,
                                    unsigned long long *out_failed) {
     (void) digest_len_bits;
-    return ngcc_dsa_verify_correctness_kat_file(api, kat_path, out_total, out_passed, out_failed);
+    return ngcc_sig_verify_correctness_kat_file(api, kat_path, out_total, out_passed, out_failed);
 }
 
 static int kem_kat_dispatch(const ngcc_api_t *api,
@@ -134,104 +103,11 @@ static int hash_performance_dispatch(const ngcc_api_t *api,
     return ngcc_hash_performance(api, digest_len_bits, msg_len, cfg, out_result);
 }
 
-static int dsa_performance_dispatch(const ngcc_api_t *api,
-                                    int digest_len_bits,
-                                    size_t msg_len,
-                                    const ngcc_perf_config_t *cfg,
-                                    ngcc_perf_result_t *out_result) {
-    (void) digest_len_bits;
-    return ngcc_dsa_performance(api, msg_len, cfg, out_result);
-}
 
-static int dsa_keygen_performance_dispatch(const ngcc_api_t *api,
-                                           int digest_len_bits,
-                                           size_t msg_len,
-                                           const ngcc_perf_config_t *cfg,
-                                           ngcc_perf_result_t *out_result) {
-    (void) digest_len_bits;
-    (void) msg_len;
-    return ngcc_dsa_keygen_performance(api, cfg, out_result);
-}
-
-static int dsa_sig_performance_dispatch(const ngcc_api_t *api,
-                                        int digest_len_bits,
-                                        size_t msg_len,
-                                        const ngcc_perf_config_t *cfg,
-                                        ngcc_perf_result_t *out_result) {
-    (void) digest_len_bits;
-    return ngcc_dsa_sig_performance(api, msg_len, cfg, out_result);
-}
-
-static int dsa_verify_performance_dispatch(const ngcc_api_t *api,
-                                           int digest_len_bits,
-                                           size_t msg_len,
-                                           const ngcc_perf_config_t *cfg,
-                                           ngcc_perf_result_t *out_result) {
-    (void) digest_len_bits;
-    return ngcc_dsa_verify_performance(api, msg_len, cfg, out_result);
-}
-
-static int kem_performance_dispatch(const ngcc_api_t *api,
-                                    int digest_len_bits,
-                                    size_t msg_len,
-                                    const ngcc_perf_config_t *cfg,
-                                    ngcc_perf_result_t *out_result) {
-    (void) digest_len_bits;
-    (void) msg_len;
-    return ngcc_kem_performance(api, cfg, out_result);
-}
-
-static int kem_keygen_performance_dispatch(const ngcc_api_t *api,
-                                           int digest_len_bits,
-                                           size_t msg_len,
-                                           const ngcc_perf_config_t *cfg,
-                                           ngcc_perf_result_t *out_result) {
-    (void) digest_len_bits;
-    (void) msg_len;
-    return ngcc_kem_keygen_performance(api, cfg, out_result);
-}
-
-static int kem_encap_performance_dispatch(const ngcc_api_t *api,
-                                          int digest_len_bits,
-                                          size_t msg_len,
-                                          const ngcc_perf_config_t *cfg,
-                                          ngcc_perf_result_t *out_result) {
-    (void) digest_len_bits;
-    (void) msg_len;
-    return ngcc_kem_encap_performance(api, cfg, out_result);
-}
-
-static int kem_decap_performance_dispatch(const ngcc_api_t *api,
-                                          int digest_len_bits,
-                                          size_t msg_len,
-                                          const ngcc_perf_config_t *cfg,
-                                          ngcc_perf_result_t *out_result) {
-    (void) digest_len_bits;
-    (void) msg_len;
-    return ngcc_kem_decap_performance(api, cfg, out_result);
-}
-
-static int kex_performance_dispatch(const ngcc_api_t *api,
-                                    int digest_len_bits,
-                                    size_t msg_len,
-                                    const ngcc_perf_config_t *cfg,
-                                    ngcc_perf_result_t *out_result) {
-    (void) digest_len_bits;
-    (void) msg_len;
-    return ngcc_kex_performance(api, cfg, out_result);
-}
 
 static unsigned long long msg_len_bytes_per_case(const ngcc_api_t *api, size_t msg_len) {
     (void) api;
     return (unsigned long long) msg_len;
-}
-
-static unsigned long long dsa_keygen_bytes_per_case(const ngcc_api_t *api, size_t msg_len) {
-    (void) msg_len;
-    if (api == NULL) {
-        return 0;
-    }
-    return api->sig_get_pk_len_bytes() + api->sig_get_sk_len_bytes();
 }
 
 static unsigned long long kem_bytes_per_case(const ngcc_api_t *api, size_t msg_len) {
@@ -252,15 +128,9 @@ static unsigned long long kex_bytes_per_case(const ngcc_api_t *api, size_t msg_l
 
 #define NGCC_TEST_DISPATCH_TABLE(X) \
     X(TEST_MASK_HASH, NGCC_TEST_HASH, "hash", hash_correctness_dispatch, hash_kat_dispatch, hash_performance_dispatch, msg_len_bytes_per_case) \
-    X(TEST_MASK_DSA, NGCC_TEST_DSA, "dsa", dsa_correctness_dispatch, kat_not_supported_dispatch, dsa_performance_dispatch, msg_len_bytes_per_case) \
-    X(TEST_MASK_DSA_KEYGEN, NGCC_TEST_DSA_KEYGEN, "dsa-keygen", dsa_keygen_correctness_dispatch, kat_not_supported_dispatch, dsa_keygen_performance_dispatch, dsa_keygen_bytes_per_case) \
-    X(TEST_MASK_DSA_SIG, NGCC_TEST_DSA_SIG, "dsa-sig", dsa_sig_correctness_dispatch, kat_not_supported_dispatch, dsa_sig_performance_dispatch, msg_len_bytes_per_case) \
-    X(TEST_MASK_DSA_VERIFY, NGCC_TEST_DSA_VERIFY, "dsa-verify", dsa_verify_correctness_dispatch, dsa_verify_kat_dispatch, dsa_verify_performance_dispatch, msg_len_bytes_per_case) \
-    X(TEST_MASK_KEM, NGCC_TEST_KEM, "kem", kem_correctness_dispatch, kem_kat_dispatch, kem_performance_dispatch, kem_bytes_per_case) \
-    X(TEST_MASK_KEM_KEYGEN, NGCC_TEST_KEM_KEYGEN, "kem-keygen", kem_correctness_dispatch, kat_not_supported_dispatch, kem_keygen_performance_dispatch, kem_bytes_per_case) \
-    X(TEST_MASK_KEM_ENCAP, NGCC_TEST_KEM_ENCAP, "kem-encap", kem_correctness_dispatch, kat_not_supported_dispatch, kem_encap_performance_dispatch, kem_bytes_per_case) \
-    X(TEST_MASK_KEM_DECAP, NGCC_TEST_KEM_DECAP, "kem-decap", kem_correctness_dispatch, kat_not_supported_dispatch, kem_decap_performance_dispatch, kem_bytes_per_case) \
-    X(TEST_MASK_KEX, NGCC_TEST_KEX, "kex", kex_correctness_dispatch, kex_kat_dispatch, kex_performance_dispatch, kex_bytes_per_case)
+    X(TEST_MASK_SIG, NGCC_TEST_SIG, "sig", sig_correctness_dispatch, sig_verify_kat_dispatch, NULL, msg_len_bytes_per_case) \
+    X(TEST_MASK_KEM, NGCC_TEST_KEM, "kem", kem_correctness_dispatch, kem_kat_dispatch, NULL, kem_bytes_per_case) \
+    X(TEST_MASK_KEX, NGCC_TEST_KEX, "kex", kex_correctness_dispatch, kex_kat_dispatch, NULL, kex_bytes_per_case)
 
 #define NGCC_TEST_ENTRY_ROW(mask, kind, name, correctness_fn, kat_fn, performance_fn, bytes_per_case_fn) \
     {mask, kind, name},
@@ -329,6 +199,121 @@ static int run_correctness_for_test(const ngcc_api_t *api,
     return rc;
 }
 
+static void print_perf_result(const char *prefix, size_t msg_len,
+                              const ngcc_perf_result_t *result) {
+    printf("[%s][performance][%zuB] ops=%llu warmup=%llu elapsed_ms=%.3f bytes/op=%.3f\n",
+           prefix, msg_len,
+           result->iterations,
+           result->warmup_iterations,
+           result->elapsed_ms,
+           result->bytes_per_op);
+    if (result->cycles_available) {
+        printf("[%s][performance][%zuB][cycles] min=%.3f mean=%.3f median=%.3f max=%.3f stddev=%.3f cv=%.3f%% per_byte=%.3f\n",
+               prefix, msg_len,
+               result->cycles_min,
+               result->cycles_per_op,
+               result->cycles_median,
+               result->cycles_max,
+               result->cycles_stddev,
+               result->cycles_cv_percent,
+               result->cycles_per_byte);
+    } else {
+        printf("[%s][performance][%zuB][cycles] unavailable\n", prefix, msg_len);
+    }
+    printf("[%s][performance][%zuB][throughput] ops/s=%.3f bytes/s=%.3f\n",
+           prefix, msg_len,
+           result->ops_per_sec,
+           result->bytes_per_sec);
+    printf("[%s][performance][%zuB][time] mean_ms=%.6f median_ms=%.6f stddev_ms=%.6f cv=%.3f%%\n",
+           prefix, msg_len,
+           result->time_ms_mean,
+           result->time_ms_median,
+           result->time_ms_stddev,
+           result->time_ms_cv_percent);
+}
+
+static int run_sig_sub_performance(const ngcc_api_t *api,
+                                   const ngcc_perf_config_t *cfg) {
+    ngcc_perf_result_t result;
+    int any_fail = 0;
+    int rc;
+    size_t mi;
+
+    /* keygen: no msg_len dependency, run once */
+    rc = ngcc_sig_keygen_performance(api, cfg, &result);
+    if (rc != 0) {
+        printf("[sig][keygen][performance] FAIL\n");
+        any_fail = 1;
+    } else {
+        print_perf_result("sig][keygen", 0, &result);
+    }
+
+    /* sign: depends on msg_len */
+    for (mi = 0; mi < NGCC_NUM_MSG_LENS; ++mi) {
+        size_t msg_len = k_msg_lens[mi];
+        rc = ngcc_sig_sign_performance(api, msg_len, cfg, &result);
+        if (rc != 0) {
+            printf("[sig][sign][performance][%zuB] FAIL\n", msg_len);
+            any_fail = 1;
+            continue;
+        }
+        print_perf_result("sig][sign", msg_len, &result);
+    }
+
+    /* verify: depends on msg_len */
+    for (mi = 0; mi < NGCC_NUM_MSG_LENS; ++mi) {
+        size_t msg_len = k_msg_lens[mi];
+        rc = ngcc_sig_verify_performance(api, msg_len, cfg, &result);
+        if (rc != 0) {
+            printf("[sig][verify][performance][%zuB] FAIL\n", msg_len);
+            any_fail = 1;
+            continue;
+        }
+        print_perf_result("sig][verify", msg_len, &result);
+    }
+
+    return any_fail ? -1 : 0;
+}
+
+static int run_kem_sub_performance(const ngcc_api_t *api,
+                                   const ngcc_perf_config_t *cfg) {
+    static const char *const sub_names[] = {"kem][keygen", "kem][encap", "kem][decap"};
+    ngcc_perf_result_t result;
+    int any_fail = 0;
+    size_t si;
+
+    typedef int (*kem_sub_perf_fn)(const ngcc_api_t *, const ngcc_perf_config_t *, ngcc_perf_result_t *);
+    kem_sub_perf_fn sub_fns[] = {
+        ngcc_kem_keygen_performance,
+        ngcc_kem_encap_performance,
+        ngcc_kem_decap_performance
+    };
+
+    for (si = 0; si < 3; ++si) {
+        int rc = sub_fns[si](api, cfg, &result);
+        if (rc != 0) {
+            printf("[%s][performance] FAIL\n", sub_names[si]);
+            any_fail = 1;
+            continue;
+        }
+        print_perf_result(sub_names[si], 0, &result);
+    }
+    return any_fail ? -1 : 0;
+}
+
+static int run_kex_sub_performance(const ngcc_api_t *api,
+                                   const ngcc_perf_config_t *cfg) {
+    ngcc_perf_result_t result_a, result_b;
+    int rc = ngcc_kex_derive_ss_performance(api, cfg, &result_a, &result_b);
+    if (rc != 0) {
+        printf("[kex][performance] FAIL\n");
+        return -1;
+    }
+    print_perf_result("kex][derive_ss_a", 0, &result_a);
+    print_perf_result("kex][derive_ss_b", 0, &result_b);
+    return 0;
+}
+
 static int run_performance_for_test(const ngcc_api_t *api,
                                     size_t test_index,
                                     const cli_options_t *opts,
@@ -350,6 +335,30 @@ static int run_performance_for_test(const ngcc_api_t *api,
     cfg.iterations = NGCC_PERF_ITERATIONS;
     cfg.bytes_per_op = 0;
 
+    /* For SIG, KEM, KEX: run sub-operation performance (no aggregate) */
+    if (test->kind == NGCC_TEST_SIG) {
+        rc = run_sig_sub_performance(api, &cfg);
+        if (report != NULL) {
+            report->performance_status = (rc != 0) ? STATUS_FAIL : STATUS_PASS;
+        }
+        return rc;
+    }
+    if (test->kind == NGCC_TEST_KEM) {
+        rc = run_kem_sub_performance(api, &cfg);
+        if (report != NULL) {
+            report->performance_status = (rc != 0) ? STATUS_FAIL : STATUS_PASS;
+        }
+        return rc;
+    }
+    if (test->kind == NGCC_TEST_KEX) {
+        rc = run_kex_sub_performance(api, &cfg);
+        if (report != NULL) {
+            report->performance_status = (rc != 0) ? STATUS_FAIL : STATUS_PASS;
+        }
+        return rc;
+    }
+
+    /* HASH only: run the aggregate performance function */
     for (mi = 0; mi < NGCC_NUM_MSG_LENS; ++mi) {
         size_t msg_len = k_msg_lens[mi];
 
@@ -361,44 +370,11 @@ static int run_performance_for_test(const ngcc_api_t *api,
             continue;
         }
 
-        printf("[%s][performance][%zuB] ops=%llu warmup=%llu elapsed_ms=%.3f bytes/op=%.3f\n",
-               test->name, msg_len,
-               result.iterations,
-               result.warmup_iterations,
-               result.elapsed_ms,
-               result.bytes_per_op);
-        if (result.cycles_available) {
-            printf("[%s][performance][%zuB][cycles] min=%.3f mean=%.3f median=%.3f max=%.3f stddev=%.3f cv=%.3f%% per_byte=%.3f\n",
-                   test->name, msg_len,
-                   result.cycles_min,
-                   result.cycles_per_op,
-                   result.cycles_median,
-                   result.cycles_max,
-                   result.cycles_stddev,
-                   result.cycles_cv_percent,
-                   result.cycles_per_byte);
-        } else {
-            printf("[%s][performance][%zuB][cycles] unavailable\n", test->name, msg_len);
-        }
-        printf("[%s][performance][%zuB][throughput] ops/s=%.3f bytes/s=%.3f\n",
-               test->name, msg_len,
-               result.ops_per_sec,
-               result.bytes_per_sec);
-        printf("[%s][performance][%zuB][time] mean_ms=%.6f median_ms=%.6f stddev_ms=%.6f cv=%.3f%%\n",
-               test->name, msg_len,
-               result.time_ms_mean,
-               result.time_ms_median,
-               result.time_ms_stddev,
-               result.time_ms_cv_percent);
+        print_perf_result(test->name, msg_len, &result);
 
         if (report != NULL) {
             report->performance[mi] = result;
             report->performance_count = (int) mi + 1;
-        }
-
-        /* KEM/KEX/sub-ops don't depend on msg_len, run once only */
-        if (test->kind != NGCC_TEST_HASH && test->kind != NGCC_TEST_DSA) {
-            break;
         }
     }
 
@@ -421,7 +397,7 @@ static int run_stability_for_test(const ngcc_api_t *api,
     memset(&result, 0, sizeof(result));
     rc = ngcc_run_stability(api,
                             dispatch->correctness_fn,
-                            dispatch->bytes_per_case_fn,
+                            (test->kind == NGCC_TEST_HASH) ? dispatch->bytes_per_case_fn : NULL,
                             (test->kind == NGCC_TEST_HASH) ? opts->digest_len_bits : 0,
                             NGCC_STABILITY_MSG_LEN,
                             1,
@@ -449,14 +425,16 @@ static int run_stability_for_test(const ngcc_api_t *api,
                result.throughput_cv_percent,
                result.throughput_min_ops,
                result.throughput_max_ops);
-        printf("[%s][stability][throughput_bytes] mean=%.3f stddev=%.3f cv=%.3f%% min=%.3f max=%.3f bytes/case=%.3f\n",
-               test->name,
-               result.throughput_mean_bytes,
-               result.throughput_stddev_bytes,
-               result.throughput_cv_percent_bytes,
-               result.throughput_min_bytes,
-               result.throughput_max_bytes,
-               result.bytes_per_case);
+        if (result.bytes_per_case > 0.0) {
+            printf("[%s][stability][throughput_bytes] mean=%.3f stddev=%.3f cv=%.3f%% min=%.3f max=%.3f bytes/case=%.3f\n",
+                   test->name,
+                   result.throughput_mean_bytes,
+                   result.throughput_stddev_bytes,
+                   result.throughput_cv_percent_bytes,
+                   result.throughput_min_bytes,
+                   result.throughput_max_bytes,
+                   result.bytes_per_case);
+        }
         if (result.cycles_available) {
             printf("[%s][stability][cycles] mean=%.3f stddev=%.3f cv=%.3f%% min=%.3f max=%.3f\n",
                    test->name,
@@ -542,14 +520,19 @@ static int run_memory_mode(const ngcc_api_t *api,
         memset(&static_mem, 0, sizeof(static_mem));
     }
 
-    /* dynamic memory: heap allocation delta around correctness tests */
+    /* dynamic memory: heap allocation delta around correctness tests
+     * Only run correctness_fn (no KAT parsing) to avoid file I/O memory pollution */
     heap_baseline = ngcc_mem_heap_bytes();
 
     for (i = 0; i < sizeof(k_tests) / sizeof(k_tests[0]); ++i) {
+        int digest_bits = 0;
         if ((opts->test_mask & k_tests[i].mask) == 0) {
             continue;
         }
-        if (run_correctness_for_test(api, i, opts, NULL) != 0) {
+        if (k_tests[i].kind == NGCC_TEST_HASH) {
+            digest_bits = opts->digest_len_bits;
+        }
+        if (k_test_dispatch[i].correctness_fn(api, digest_bits, k_msg_lens[0]) != 0) {
             failed = 1;
         }
     }

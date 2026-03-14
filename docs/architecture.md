@@ -13,12 +13,12 @@
 - `src/cycle_counter.c`：CPU 周期计数器（perf/TSC/ARMv8）
 - `src/stats_util.c`：Welford 在线统计（均值/方差/标准差）
 - `src/bench_hash.c`：Hash 正确性与性能
-- `src/bench_sig.c`：DSA 聚合测试与接口级细分测试（`dsa` / `dsa-keygen` / `dsa-sig` / `dsa-verify`）
+- `src/bench_sig.c`：SIG 聚合测试（correctness/performance/KAT），性能测试分别输出 keygen/sign/verify 指标
 - `src/bench_kem.c`：KEM 正确性与性能（支持整体测试及 keygen/encap/decap 分离测试）
 - `src/bench_kex.c`：KEX 正确性与性能
 - `src/mem_stat.c`：RSS 当前值与峰值
 - `src/stability.c`：稳定性循环执行与信号中断处理
-- `src/kat_parser.c`：KAT 文件解析（用于 `hash/dsa-verify/kem/kex` correctness）
+- `src/kat_parser.c`：KAT 文件解析（用于 `hash/sig/kem/kex` correctness）
 
 头文件位于：`ngcc_bench/include/`（包含 `cli_types.h` 共享类型定义）
 
@@ -39,11 +39,8 @@
 
 `correctness`
 - Hash：默认对随机消息做重复摘要一致性检查；若传 `--kat` 则按向量文件执行 KAT 比对。
-- DSA：
-  - `dsa`：`keygen -> sign -> verify`，作为默认聚合测试项统一呈现。
-  - `dsa-keygen`：验证 `sig_keygen()` 的长度与返回值契约。
-  - `dsa-sig`：`keygen -> sign -> verify`，主测 `sig_sign()` 输出是否可被验证。
-  - `dsa-verify`：`keygen -> sign -> verify`，并附加篡改消息后的拒绝检查。
+- SIG：
+  - `sig`：`keygen -> sign -> verify`，作为聚合测试项。
 - KEM：默认执行 `keygen -> enc -> dec` 比较共享密钥一致性；若传 `--kat` 则按向量文件执行 decap/shared-secret 比对。
 - KEX：模拟 A/B 三次消息交换并各自导出共享密钥，比较一致性。
 
@@ -51,8 +48,8 @@
 - 使用统一执行器 `ngcc_run_performance_op()`。
 - 预热策略：`max(10, iterations / 100)`。
 - 指标：`elapsed_ms/total_ms`、`ops/s`、`bytes/s`、可选 `cycles/op`，以及 `min/mean/median/max/stddev/CV`（time/cycles）。
-- DSA 支持聚合测试 `--test dsa`，并保留 `dsa-keygen` / `dsa-sig` / `dsa-verify` 细分性能测试。
-- KEM 支持聚合测试 `--test kem`，并保留 `kem-keygen` / `kem-encap` / `kem-decap` 细分性能测试。
+- SIG `--test sig` 自动输出 keygen/sign/verify 各子操作性能指标。
+- KEM `--test kem` 自动输出 keygen/encap/decap 各子操作性能指标。
 
 `memory`
 - `static_mem`：读取算法库的 `text/data/bss/rodata` 段大小。
@@ -91,13 +88,13 @@ cycle 统计优先级：
 - 内存指标是进程级口径，不是每个算法独立进程隔离口径；当前 Linux 路径最完整，非 Linux 平台上部分字段可能不可用。
 - JSON 报告为可选功能，需通过 `--json-out` 显式启用。
 - JSON 结构定义：`docs/json_schema_v4.json`（配套说明：`docs/json_schema.md`）。
-- `--kat` 可用于 `hash/dsa-verify/kem/kex` 的 correctness；若某算法无可用向量，会回退到运行时回归检查。
+- `--kat` 可用于 `hash/sig/kem/kex` 的 correctness；若某算法无可用向量，会回退到运行时回归检查。
 
 ## 6. 测试
 
 - 已接入 CTest：`ngcc_cli_regression`、`ngcc_mock_mlkem`、`ngcc_mock_mldsa`、`ngcc_mock_mlkex`、`ngcc_unit_tests`
 - CLI 回归测试程序：`tests/test_cli_regression.c`
-- 单元测试：`tests/test_unit.c`（21 个测试覆盖 stats/cli_parser/timespec，含 dsa-keygen/dsa-sig/dsa-verify 与 kem-keygen/kem-encap/kem-decap 解析）
+- 单元测试：`tests/test_unit.c`（覆盖 stats/cli_parser/timespec 等功能）
 - mock 动态库源码：`tests/mock/mock_ngcc.c`、`tests/mock/mock_hash_only.c`、`tests/mock/mock_mlkem.c`、`tests/mock/mock_mldsa.c`、`tests/mock/mock_mlkex.c`
 - mock 回归测试程序：`tests/test_mock_mlkem.c`、`tests/test_mock_mldsa.c`、`tests/test_mock_mlkex.c`
 - 稳定性专项程序：`tests/ngcc_stability_profile.c`

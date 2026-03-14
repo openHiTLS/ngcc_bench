@@ -35,55 +35,16 @@ int main(int argc, char **argv) {
     CHECK(argc == 3, "usage: test_mock_mldsa BENCH MOCK_LIB");
 
     {
-        char *const cmd[] = {argv[1], "--lib", argv[2], "--test", "dsa", "--mode", "correctness", "--msg-len", "64", NULL};
-        CHECK(run_expect(cmd, "[dsa][correctness] PASS", NULL, NULL) == 0, "aggregate correctness failed");
-    }
-    {
-        char *const cmd[] = {argv[1], "--lib", argv[2], "--test", "dsa-keygen", "--mode", "correctness", NULL};
-        CHECK(run_expect(cmd, "[dsa-keygen][correctness] PASS", NULL, NULL) == 0, "keygen correctness failed");
-    }
-    {
-        char *const cmd[] = {argv[1], "--lib", argv[2], "--test", "dsa-sig", "--mode", "correctness", "--msg-len", "64", NULL};
-        CHECK(run_expect(cmd, "[dsa-sig][correctness] PASS", NULL, NULL) == 0, "sig correctness failed");
-    }
-    {
-        char *const cmd[] = {argv[1], "--lib", argv[2], "--test", "dsa-verify", "--mode", "correctness", "--msg-len", "64", NULL};
-        CHECK(run_expect(cmd, "[dsa-verify][correctness] PASS", NULL, NULL) == 0, "verify correctness failed");
+        char *const cmd[] = {argv[1], "--lib", argv[2], "--test", "sig", "--mode", "correctness", "--msg-len", "64", NULL};
+        CHECK(run_expect(cmd, "[sig][correctness] PASS", NULL, NULL) == 0, "aggregate correctness failed");
     }
     {
         char *const cmd[] = {
-            argv[1], "--lib", argv[2], "--test", "dsa", "--mode", "performance",
+            argv[1], "--lib", argv[2], "--test", "sig", "--mode", "performance",
             "--msg-len", "64", "--iterations", "1000", "--cycles", "off", NULL
         };
-        CHECK(run_expect(cmd, "[dsa][performance] ops=", "[dsa][performance][throughput]", "[dsa][performance][time]") == 0,
-              "aggregate performance failed");
-    }
-    {
-        char *const cmd[] = {
-            argv[1], "--lib", argv[2], "--test", "dsa-keygen", "--mode", "performance",
-            "--iterations", "1000", "--cycles", "off", NULL
-        };
-        CHECK(run_expect(cmd, "[dsa-keygen][performance] ops=", "[dsa-keygen][performance][throughput]",
-                         "[dsa-keygen][performance][time]") == 0,
-              "keygen performance failed");
-    }
-    {
-        char *const cmd[] = {
-            argv[1], "--lib", argv[2], "--test", "dsa-sig", "--mode", "performance",
-            "--msg-len", "64", "--iterations", "1000", "--cycles", "off", NULL
-        };
-        CHECK(run_expect(cmd, "[dsa-sig][performance] ops=", "[dsa-sig][performance][throughput]",
-                         "[dsa-sig][performance][time]") == 0,
-              "sig performance failed");
-    }
-    {
-        char *const cmd[] = {
-            argv[1], "--lib", argv[2], "--test", "dsa-verify", "--mode", "performance",
-            "--msg-len", "64", "--iterations", "1000", "--cycles", "off", NULL
-        };
-        CHECK(run_expect(cmd, "[dsa-verify][performance] ops=", "[dsa-verify][performance][throughput]",
-                         "[dsa-verify][performance][time]") == 0,
-              "verify performance failed");
+        CHECK(run_expect(cmd, "[sig][keygen][performance]", "[sig][sign][performance]", "[sig][verify][performance]") == 0,
+              "sub-op performance failed");
     }
 
     printf("mock mldsa regression passed\n");

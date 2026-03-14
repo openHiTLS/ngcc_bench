@@ -135,7 +135,7 @@ int ngcc_run_stability(const ngcc_api_t *api,
         cycles_warning_printed = 1;
     }
 
-    memory_start = ngcc_mem_current_rss_bytes();
+    memory_start = ngcc_mem_heap_bytes();
     memory_min = memory_start;
     memory_max = memory_start;
 
@@ -189,11 +189,10 @@ int ngcc_run_stability(const ngcc_api_t *api,
             total_executions++;
             if (case_rc != 0) {
                 error_count++;
-                loop_failed = 1;
-                batch_failed = 1;
-                break;
+                /* Continue rather than break — accumulate error rate instead of aborting */
+            } else {
+                batch_ok++;
             }
-            batch_ok++;
             cases_run++;
 
             if (g_stop_requested || cases_run >= max_cases) {
@@ -244,19 +243,12 @@ int ngcc_run_stability(const ngcc_api_t *api,
             }
         }
 
-        current_mem = ngcc_mem_current_rss_bytes();
+        current_mem = ngcc_mem_heap_bytes();
         if (current_mem < memory_min) {
             memory_min = current_mem;
         }
         if (current_mem > memory_max) {
             memory_max = current_mem;
-        }
-
-        {
-            uint64_t peak_rss = ngcc_mem_peak_rss_bytes();
-            if (peak_rss > memory_max) {
-                memory_max = peak_rss;
-            }
         }
 
         if (batch_failed || loop_failed) {
@@ -274,7 +266,7 @@ int ngcc_run_stability(const ngcc_api_t *api,
                                       ((double) (ts_now.tv_nsec - ts_start.tv_nsec) / 1000000000.0);
     }
 
-    memory_end = ngcc_mem_current_rss_bytes();
+    memory_end = ngcc_mem_heap_bytes();
     if (memory_end < memory_min) {
         memory_min = memory_end;
     }
@@ -330,7 +322,7 @@ int ngcc_run_stability(const ngcc_api_t *api,
     out_result->memory_end_bytes = memory_end;
     out_result->memory_min_bytes = memory_min;
     out_result->memory_max_bytes = memory_max;
-    out_result->memory_peak_rss_bytes = ngcc_mem_peak_rss_bytes();
+    out_result->memory_peak_rss_bytes = memory_max;
     if (memory_start > 0U) {
         out_result->memory_growth_percent = ((double) ((long long) memory_end - (long long) memory_start) * 100.0) /
                                             (double) memory_start;

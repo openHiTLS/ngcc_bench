@@ -97,7 +97,7 @@ int main(int argc, char **argv) {
         "{\n"
         "  \"tests\": {\n"
         "    \"hash\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
-        "    \"dsa\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
+        "    \"sig\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
         "    \"kem\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
         "    \"kex\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}}\n"
         "  }\n"
@@ -106,7 +106,7 @@ int main(int argc, char **argv) {
         "{\n"
         "  \"tests\": {\n"
         "    \"hash\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"WARNING\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
-        "    \"dsa\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
+        "    \"sig\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
         "    \"kem\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
         "    \"kex\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}}\n"
         "  }\n"
@@ -115,7 +115,7 @@ int main(int argc, char **argv) {
         "{\n"
         "  \"tests\": {\n"
         "    \"hash\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 80.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
-        "    \"dsa\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
+        "    \"sig\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
         "    \"kem\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}},\n"
         "    \"kex\": {\"stability\": \"PASS\", \"stability_metrics\": {\"status\": \"STABLE\", \"throughput_cv_percent\": 1.0, \"time_cv_percent\": 1.0, \"cycles_cv_percent\": 1.0, \"throughput_mean_ops\": 100.0, \"time_mean_ms\": 1.0, \"cycles_mean\": 10.0, \"memory_growth_percent\": 0.0, \"error_rate_percent\": 0.0}}\n"
         "  }\n"
@@ -149,7 +149,7 @@ int main(int argc, char **argv) {
         };
         CHECK(run_and_expect(cmd, 0,
                              "[hash][correctness] PASS",
-                             "[dsa][correctness] PASS",
+                             "[sig][correctness] PASS",
                              "[kem][correctness] PASS total=1 passed=1 failed=0 source=kat") == 0,
               "correctness regression failed");
     }
@@ -238,7 +238,7 @@ int main(int argc, char **argv) {
     CHECK(test_file_contains(json_path, "\"environment\""), "json missing environment metadata");
     CHECK(test_file_contains(json_path, "\"json_out_path\":"), "json missing output path metadata");
     CHECK(test_file_contains(json_path, "\"hash\""), "json missing hash node");
-    CHECK(test_file_contains(json_path, "\"dsa\""), "json missing dsa node");
+    CHECK(test_file_contains(json_path, "\"sig\""), "json missing sig node");
     CHECK(test_file_contains(json_path, "\"kem\""), "json missing kem node");
     CHECK(test_file_contains(json_path, "\"kex\""), "json missing kex node");
 
@@ -288,7 +288,7 @@ int main(int argc, char **argv) {
 
     {
         char *const cmd[] = {
-            argv[1], "--lib", argv[3], "--test", "dsa-keygen", "--mode", "correctness", NULL
+            argv[1], "--lib", argv[3], "--test", "sig", "--mode", "correctness", NULL
         };
         CHECK(run_and_expect(cmd, 1,
                              "missing symbol",
