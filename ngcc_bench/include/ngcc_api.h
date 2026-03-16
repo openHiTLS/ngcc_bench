@@ -7,6 +7,19 @@
 extern "C" {
 #endif
 
+/* KEX pass1 function (8 params, no input message — pass1 uses pk of the other party directly). */
+typedef int (*kex_pass1_fn_t)(unsigned char *sk, unsigned long long sk_len,
+                              unsigned char *pk, unsigned long long pk_len,
+                              unsigned char *st, unsigned long long *st_len,
+                              unsigned char *m_out, unsigned long long *m_out_len);
+
+/* KEX pass2+ function (10 params, with input message from previous pass). */
+typedef int (*kex_pass_fn_t)(unsigned char *sk, unsigned long long sk_len,
+                             unsigned char *pk, unsigned long long pk_len,
+                             unsigned char *m_in, unsigned long long m_in_len,
+                             unsigned char *st, unsigned long long *st_len,
+                             unsigned char *m_out, unsigned long long *m_out_len);
+
 typedef struct {
     int (*CryptHash)(int digest_len_bits,
                      const unsigned char *msg,
@@ -53,22 +66,9 @@ typedef struct {
                       unsigned char *skb, unsigned long long *skb_len_bytes,
                       unsigned char *stb, unsigned long long *stb_len_bytes);
 
-    int (*kex_generate_pass1_msg_a)(unsigned char *ska, unsigned long long ska_len_bytes,
-                                    unsigned char *pkb, unsigned long long pkb_len_bytes,
-                                    unsigned char *sta, unsigned long long *sta_len_bytes,
-                                    unsigned char *m1, unsigned long long *m1_len_bytes);
-
-    int (*kex_generate_pass2_msg_b)(unsigned char *skb, unsigned long long skb_len_bytes,
-                                    unsigned char *pka, unsigned long long pka_len_bytes,
-                                    unsigned char *m1, unsigned long long m1_len_bytes,
-                                    unsigned char *stb, unsigned long long *stb_len_bytes,
-                                    unsigned char *m2, unsigned long long *m2_len_bytes);
-
-    int (*kex_generate_pass3_msg_a)(unsigned char *ska, unsigned long long ska_len_bytes,
-                                    unsigned char *pkb, unsigned long long pkb_len_bytes,
-                                    unsigned char *m2, unsigned long long m2_len_bytes,
-                                    unsigned char *sta, unsigned long long *sta_len_bytes,
-                                    unsigned char *m3, unsigned long long *m3_len_bytes);
+    unsigned long long kex_passes_num;   /* cached from kex_get_passes_num() */
+    kex_pass1_fn_t kex_pass1_fn;         /* pass1 function (always A-side) */
+    kex_pass_fn_t *kex_pass_fns;         /* array[0..passes_num-2] for pass2..N via dlsym, NULL if passes_num==1 */
 
     int (*kex_derive_ss_a)(unsigned char *ska, unsigned long long ska_len_bytes,
                            unsigned char *pkb, unsigned long long pkb_len_bytes,

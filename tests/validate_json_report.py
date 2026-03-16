@@ -94,8 +94,7 @@ def main() -> int:
     stability_statuses = run_statuses if schema_version <= 3 else {
         "STABLE", "WARNING", "UNSTABLE", "FAIL", "STOPPED", "SKIPPED"
     }
-    for name in ("hash", "dsa", "dsa-keygen", "dsa-sig", "dsa-verify", "kem", "kex",
-                 "kem-keygen", "kem-encap", "kem-decap"):
+    for name in ("hash", "sig", "kem", "kex"):
         t = require_key(tests, name)
         expect(isinstance(require_key(t, "selected"), bool), f"tests.{name}.selected must be bool")
         expect(require_key(t, "correctness") in run_statuses, f"tests.{name}.correctness invalid status")

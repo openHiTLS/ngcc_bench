@@ -39,51 +39,12 @@ int main(int argc, char **argv) {
         CHECK(run_expect(cmd, "[kem][correctness] PASS", NULL, NULL) == 0, "aggregate correctness failed");
     }
     {
-        char *const cmd[] = {argv[1], "--lib", argv[2], "--test", "kem-keygen", "--mode", "correctness", NULL};
-        CHECK(run_expect(cmd, "[kem-keygen][correctness] PASS", NULL, NULL) == 0, "keygen correctness failed");
-    }
-    {
-        char *const cmd[] = {argv[1], "--lib", argv[2], "--test", "kem-encap", "--mode", "correctness", NULL};
-        CHECK(run_expect(cmd, "[kem-encap][correctness] PASS", NULL, NULL) == 0, "encap correctness failed");
-    }
-    {
-        char *const cmd[] = {argv[1], "--lib", argv[2], "--test", "kem-decap", "--mode", "correctness", NULL};
-        CHECK(run_expect(cmd, "[kem-decap][correctness] PASS", NULL, NULL) == 0, "decap correctness failed");
-    }
-    {
         char *const cmd[] = {
             argv[1], "--lib", argv[2], "--test", "kem", "--mode", "performance",
             "--iterations", "1000", "--cycles", "off", NULL
         };
-        CHECK(run_expect(cmd, "[kem][performance] ops=", "[kem][performance][throughput]", "[kem][performance][time]") == 0,
-              "aggregate performance failed");
-    }
-    {
-        char *const cmd[] = {
-            argv[1], "--lib", argv[2], "--test", "kem-keygen", "--mode", "performance",
-            "--iterations", "1000", "--cycles", "off", NULL
-        };
-        CHECK(run_expect(cmd, "[kem-keygen][performance] ops=", "[kem-keygen][performance][throughput]",
-                         "[kem-keygen][performance][time]") == 0,
-              "keygen performance failed");
-    }
-    {
-        char *const cmd[] = {
-            argv[1], "--lib", argv[2], "--test", "kem-encap", "--mode", "performance",
-            "--iterations", "1000", "--cycles", "off", NULL
-        };
-        CHECK(run_expect(cmd, "[kem-encap][performance] ops=", "[kem-encap][performance][throughput]",
-                         "[kem-encap][performance][time]") == 0,
-              "encap performance failed");
-    }
-    {
-        char *const cmd[] = {
-            argv[1], "--lib", argv[2], "--test", "kem-decap", "--mode", "performance",
-            "--iterations", "1000", "--cycles", "off", NULL
-        };
-        CHECK(run_expect(cmd, "[kem-decap][performance] ops=", "[kem-decap][performance][throughput]",
-                         "[kem-decap][performance][time]") == 0,
-              "decap performance failed");
+        CHECK(run_expect(cmd, "[kem][keygen][performance]", "[kem][encap][performance]", "[kem][decap][performance]") == 0,
+              "sub-op performance failed");
     }
 
     printf("mock mlkem regression passed\n");

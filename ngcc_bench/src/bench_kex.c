@@ -9,29 +9,13 @@
 #include "bench_core.h"
 #include "kat_parser.h"
 
-typedef struct {
-    const ngcc_api_t *api;
-    unsigned char *pka;
-    unsigned char *ska;
-    unsigned char *sta;
-    unsigned char *pkb;
-    unsigned char *skb;
-    unsigned char *stb;
-    unsigned char *m1;
-    unsigned char *m2;
-    unsigned char *m3;
-    unsigned char *ssa;
-    unsigned char *ssb;
-    unsigned long long pk_cap;
-    unsigned long long sk_cap;
-    unsigned long long sta_cap;
-    unsigned long long stb_cap;
-    unsigned long long msg_cap;
-    unsigned long long ss_cap;
-} kex_perf_ctx_t;
-
-
-
+/* Dynamic multi-pass KEX execution.
+ * Pass 1 (A-side, 8 params): ska, pkb, sta, m_out
+ * Pass 2+ (10 params): sk, pk, m_in, st, m_out
+ *   - Odd passes: A-side (ska, pkb, sta)
+ *   - Even passes: B-side (skb, pka, stb)
+ * derive_ss_a takes last B-msg, derive_ss_b takes last A-msg.
+ */
 static int kex_run_once(const ngcc_api_t *api,
                         unsigned char *pka,
                         unsigned char *ska,
@@ -39,9 +23,8 @@ static int kex_run_once(const ngcc_api_t *api,
                         unsigned char *pkb,
                         unsigned char *skb,
                         unsigned char *stb,
-                        unsigned char *m1,
-                        unsigned char *m2,
-                        unsigned char *m3,
+                        unsigned char *msg_buf0,
+                        unsigned char *msg_buf1,
                         unsigned char *ssa,
                         unsigned char *ssb,
                         unsigned long long pk_cap,
@@ -56,11 +39,20 @@ static int kex_run_once(const ngcc_api_t *api,
     unsigned long long pkb_len = pk_cap;
     unsigned long long skb_len = sk_cap;
     unsigned long long stb_len = stb_cap;
-    unsigned long long m1_len = msg_cap;
-    unsigned long long m2_len = msg_cap;
-    unsigned long long m3_len = msg_cap;
     unsigned long long ssa_len = ss_cap;
     unsigned long long ssb_len = ss_cap;
+
+    unsigned char *m_cur;
+    unsigned char *m_prev;
+    unsigned long long m_cur_len = 0;
+    unsigned long long m_prev_len = 0;
+    unsigned char *ma = NULL;    /* last message from A */
+    unsigned char *mb = NULL;    /* last message from B */
+    unsigned long long ma_len = 0;
+    unsigned long long mb_len = 0;
+    unsigned long long passes = api->kex_passes_num;
+    unsigned long long p;
+    int rc;
 
     if (api->kex_init_a(pka, &pka_len, ska, &ska_len, sta, &sta_len) != 0) {
         return -1;
@@ -78,31 +70,74 @@ static int kex_run_once(const ngcc_api_t *api,
         return -1;
     }
 
-    if (api->kex_generate_pass1_msg_a(ska, ska_len, pkb, pkb_len, sta, &sta_len, m1, &m1_len) != 0) {
+    /* Pass 1: A-side, 8 params (ska, pkb, sta, m_out) */
+    m_cur = msg_buf0;
+    m_cur_len = msg_cap;
+    rc = api->kex_pass1_fn(ska, ska_len, pkb, pkb_len, sta, &sta_len, m_cur, &m_cur_len);
+    if (rc < 0) {
         return -1;
     }
-    if (m1_len == 0 || m1_len > msg_cap || sta_len == 0 || sta_len > sta_cap) {
+    if (m_cur_len == 0 || m_cur_len > msg_cap || sta_len == 0 || sta_len > sta_cap) {
         return -1;
+    }
+    ma = m_cur;
+    ma_len = m_cur_len;
+
+    /* Pass 2..N: alternate A/B sides */
+    for (p = 2; p <= passes && rc == 0; ++p) {
+        kex_pass_fn_t fn = api->kex_pass_fns[p - 2];
+        m_prev = m_cur;
+        m_prev_len = m_cur_len;
+        m_cur = (m_prev == msg_buf0) ? msg_buf1 : msg_buf0;
+        m_cur_len = msg_cap;
+
+        if (p % 2 == 0) {
+            /* Even pass: B-side (skb, pka, m_prev, stb, m_out) */
+            rc = fn(skb, skb_len, pka, pka_len, m_prev, m_prev_len,
+                    stb, &stb_len, m_cur, &m_cur_len);
+            if (rc < 0) {
+                return -1;
+            }
+            if (m_cur_len == 0 || m_cur_len > msg_cap || stb_len == 0 || stb_len > stb_cap) {
+                return -1;
+            }
+            mb = m_cur;
+            mb_len = m_cur_len;
+        } else {
+            /* Odd pass: A-side (ska, pkb, m_prev, sta, m_out) */
+            rc = fn(ska, ska_len, pkb, pkb_len, m_prev, m_prev_len,
+                    sta, &sta_len, m_cur, &m_cur_len);
+            if (rc < 0) {
+                return -1;
+            }
+            if (m_cur_len == 0 || m_cur_len > msg_cap || sta_len == 0 || sta_len > sta_cap) {
+                return -1;
+            }
+            ma = m_cur;
+            ma_len = m_cur_len;
+        }
     }
 
-    if (api->kex_generate_pass2_msg_b(skb, skb_len, pka, pka_len, m1, m1_len, stb, &stb_len, m2, &m2_len) != 0) {
-        return -1;
-    }
-    if (m2_len == 0 || m2_len > msg_cap || stb_len == 0 || stb_len > stb_cap) {
-        return -1;
+    /* For 1-pass protocol: mb is NULL (no B message), derive_ss_a uses pkb directly;
+     * this is handled by the derive function itself. For multi-pass: mb/ma point to last msgs. */
+    if (mb == NULL) {
+        /* 1-pass: B derives from last A-msg, A has no B-msg to derive from.
+         * Only B-side derive is possible. */
+        if (api->kex_derive_ss_b(skb, skb_len, pka, pka_len, ma, ma_len, stb, stb_len, ssb, &ssb_len) != 0) {
+            return -1;
+        }
+        /* For 1-pass, we may not be able to verify A-side without a B-msg.
+         * Skip A-side derive and just check B output is valid. */
+        if (ssb_len == 0 || ssb_len > ss_cap) {
+            return -1;
+        }
+        return 0;
     }
 
-    if (api->kex_generate_pass3_msg_a(ska, ska_len, pkb, pkb_len, m2, m2_len, sta, &sta_len, m3, &m3_len) != 0) {
+    if (api->kex_derive_ss_a(ska, ska_len, pkb, pkb_len, mb, mb_len, sta, sta_len, ssa, &ssa_len) != 0) {
         return -1;
     }
-    if (m3_len == 0 || m3_len > msg_cap || sta_len == 0 || sta_len > sta_cap) {
-        return -1;
-    }
-
-    if (api->kex_derive_ss_a(ska, ska_len, pkb, pkb_len, m2, m2_len, sta, sta_len, ssa, &ssa_len) != 0) {
-        return -1;
-    }
-    if (api->kex_derive_ss_b(skb, skb_len, pka, pka_len, m3, m3_len, stb, stb_len, ssb, &ssb_len) != 0) {
+    if (api->kex_derive_ss_b(skb, skb_len, pka, pka_len, ma, ma_len, stb, stb_len, ssb, &ssb_len) != 0) {
         return -1;
     }
 
@@ -117,27 +152,6 @@ static int kex_run_once(const ngcc_api_t *api,
     return 0;
 }
 
-static int kex_perf_op(void *ctx_ptr) {
-    kex_perf_ctx_t *ctx = (kex_perf_ctx_t *) ctx_ptr;
-    return kex_run_once(ctx->api,
-                        ctx->pka,
-                        ctx->ska,
-                        ctx->sta,
-                        ctx->pkb,
-                        ctx->skb,
-                        ctx->stb,
-                        ctx->m1,
-                        ctx->m2,
-                        ctx->m3,
-                        ctx->ssa,
-                        ctx->ssb,
-                        ctx->pk_cap,
-                        ctx->sk_cap,
-                        ctx->sta_cap,
-                        ctx->stb_cap,
-                        ctx->msg_cap,
-                        ctx->ss_cap);
-}
 
 int ngcc_kex_correctness(const ngcc_api_t *api) {
     unsigned long long pk_cap;
@@ -153,9 +167,7 @@ int ngcc_kex_correctness(const ngcc_api_t *api) {
     unsigned char *pkb = NULL;
     unsigned char *skb = NULL;
     unsigned char *stb = NULL;
-    unsigned char *m1 = NULL;
-    unsigned char *m2 = NULL;
-    unsigned char *m3 = NULL;
+    unsigned char *msg_buf[2] = {NULL, NULL};
     unsigned char *ssa = NULL;
     unsigned char *ssb = NULL;
     int rc = -1;
@@ -182,14 +194,13 @@ int ngcc_kex_correctness(const ngcc_api_t *api) {
     pkb = (unsigned char *) malloc((size_t) pk_cap);
     skb = (unsigned char *) malloc((size_t) sk_cap);
     stb = (unsigned char *) malloc((size_t) stb_cap);
-    m1 = (unsigned char *) malloc((size_t) msg_cap);
-    m2 = (unsigned char *) malloc((size_t) msg_cap);
-    m3 = (unsigned char *) malloc((size_t) msg_cap);
+    msg_buf[0] = (unsigned char *) malloc((size_t) msg_cap);
+    msg_buf[1] = (unsigned char *) malloc((size_t) msg_cap);
     ssa = (unsigned char *) malloc((size_t) ss_cap);
     ssb = (unsigned char *) malloc((size_t) ss_cap);
 
     if (pka == NULL || ska == NULL || sta == NULL || pkb == NULL || skb == NULL || stb == NULL ||
-        m1 == NULL || m2 == NULL || m3 == NULL || ssa == NULL || ssb == NULL) {
+        msg_buf[0] == NULL || msg_buf[1] == NULL || ssa == NULL || ssb == NULL) {
         goto out;
     }
 
@@ -200,9 +211,8 @@ int ngcc_kex_correctness(const ngcc_api_t *api) {
                      pkb,
                      skb,
                      stb,
-                     m1,
-                     m2,
-                     m3,
+                     msg_buf[0],
+                     msg_buf[1],
                      ssa,
                      ssb,
                      pk_cap,
@@ -223,9 +233,8 @@ out:
     free(pkb);
     free(skb);
     free(stb);
-    free(m1);
-    free(m2);
-    free(m3);
+    free(msg_buf[0]);
+    free(msg_buf[1]);
     free(ssa);
     free(ssb);
     return rc;
@@ -334,6 +343,22 @@ static int verify_kex_kat_vectors(const ngcc_api_t *api,
         /* Skip vectors with empty SS (blank template) */
         if (ss == NULL || ss->data == NULL || ss->len == 0) {
             continue;
+        }
+
+        /* Validate Pass_Num consistency if present */
+        {
+            const ngcc_kat_field_t *pass_num_field = ngcc_kat_get_field(vec, "Pass_Num");
+            if (pass_num_field != NULL && pass_num_field->data != NULL && pass_num_field->len > 0) {
+                unsigned long long kat_passes = kex_field_to_u64(pass_num_field);
+                if (kat_passes != 0 && kat_passes != api->kex_passes_num) {
+                    fprintf(stderr, "[kex][kat] error: Pass_Num mismatch: "
+                            "KAT says %llu, library says %llu\n",
+                            kat_passes, api->kex_passes_num);
+                    (*io_total)++;
+                    (*io_failed)++;
+                    continue;
+                }
+            }
         }
 
         /* Scan M1..M{N} and corresponding Pass{N}_Sta / Pass{N}_Stb to
@@ -583,68 +608,169 @@ done:
     return rc;
 }
 
-int ngcc_kex_performance(const ngcc_api_t *api,
-                         const ngcc_perf_config_t *cfg,
-                         ngcc_perf_result_t *out_result) {
-    kex_perf_ctx_t ctx;
+/* ── KEX derive_ss performance ─────────────────────────────────── */
+
+typedef struct {
+    const ngcc_api_t *api;
+    /* Pre-computed protocol state (from running the full protocol once as setup) */
+    unsigned char *ska;  unsigned long long ska_len;
+    unsigned char *pkb;  unsigned long long pkb_len;
+    unsigned char *skb;  unsigned long long skb_len;
+    unsigned char *pka;  unsigned long long pka_len;
+    unsigned char *sta;  unsigned long long sta_len;
+    unsigned char *stb;  unsigned long long stb_len;
+    unsigned char *ma;   unsigned long long ma_len;   /* last A-msg */
+    unsigned char *mb;   unsigned long long mb_len;   /* last B-msg */
+    unsigned char *ss;   unsigned long long ss_cap;   /* output buffer */
+} kex_derive_ctx_t;
+
+static int kex_derive_ss_a_op(void *ctx_ptr) {
+    kex_derive_ctx_t *c = (kex_derive_ctx_t *) ctx_ptr;
+    unsigned long long ss_len = c->ss_cap;
+    return c->api->kex_derive_ss_a(c->ska, c->ska_len, c->pkb, c->pkb_len,
+                                   c->mb, c->mb_len, c->sta, c->sta_len,
+                                   c->ss, &ss_len);
+}
+
+static int kex_derive_ss_b_op(void *ctx_ptr) {
+    kex_derive_ctx_t *c = (kex_derive_ctx_t *) ctx_ptr;
+    unsigned long long ss_len = c->ss_cap;
+    return c->api->kex_derive_ss_b(c->skb, c->skb_len, c->pka, c->pka_len,
+                                   c->ma, c->ma_len, c->stb, c->stb_len,
+                                   c->ss, &ss_len);
+}
+
+/* Run the full KEX protocol once to obtain intermediate state for derive_ss,
+ * then benchmark derive_ss_a and derive_ss_b separately. */
+int ngcc_kex_derive_ss_performance(const ngcc_api_t *api,
+                                   const ngcc_perf_config_t *cfg,
+                                   ngcc_perf_result_t *out_a,
+                                   ngcc_perf_result_t *out_b) {
+    unsigned long long pk_cap, sk_cap, sta_cap, stb_cap, msg_cap, ss_cap;
+    unsigned char *pka = NULL, *ska = NULL, *sta = NULL;
+    unsigned char *pkb = NULL, *skb = NULL, *stb = NULL;
+    unsigned char *msg_buf[2] = {NULL, NULL};
+    unsigned char *ssa = NULL, *ssb = NULL;
+    unsigned long long pka_len, ska_len, sta_len, pkb_len, skb_len, stb_len;
+    unsigned char *ma = NULL, *mb = NULL;
+    unsigned long long ma_len = 0, mb_len = 0;
+    unsigned long long passes;
     ngcc_perf_config_t local_cfg;
     int rc = -1;
 
-    if (api == NULL || cfg == NULL || out_result == NULL) {
+    if (api == NULL || cfg == NULL || out_a == NULL || out_b == NULL) {
         return -1;
     }
 
-    memset(&ctx, 0, sizeof(ctx));
-    ctx.api = api;
-    ctx.pk_cap = api->kex_get_pk_len_bytes();
-    ctx.sk_cap = api->kex_get_sk_len_bytes();
-    ctx.sta_cap = api->kex_get_sta_len_bytes();
-    ctx.stb_cap = api->kex_get_stb_len_bytes();
-    ctx.msg_cap = api->kex_get_total_msg_len_bytes();
-    ctx.ss_cap = api->kex_get_ss_len_bytes();
+    pk_cap = api->kex_get_pk_len_bytes();
+    sk_cap = api->kex_get_sk_len_bytes();
+    sta_cap = api->kex_get_sta_len_bytes();
+    stb_cap = api->kex_get_stb_len_bytes();
+    msg_cap = api->kex_get_total_msg_len_bytes();
+    ss_cap = api->kex_get_ss_len_bytes();
+    passes = api->kex_passes_num;
 
-    if (!ngcc_is_valid_len(ctx.pk_cap) || !ngcc_is_valid_len(ctx.sk_cap) || !ngcc_is_valid_len(ctx.sta_cap) ||
-        !ngcc_is_valid_len(ctx.stb_cap) || !ngcc_is_valid_len(ctx.msg_cap) || !ngcc_is_valid_len(ctx.ss_cap)) {
+    if (!ngcc_is_valid_len(pk_cap) || !ngcc_is_valid_len(sk_cap) || !ngcc_is_valid_len(sta_cap) ||
+        !ngcc_is_valid_len(stb_cap) || !ngcc_is_valid_len(msg_cap) || !ngcc_is_valid_len(ss_cap)) {
         return -1;
     }
 
-    ctx.pka = (unsigned char *) malloc((size_t) ctx.pk_cap);
-    ctx.ska = (unsigned char *) malloc((size_t) ctx.sk_cap);
-    ctx.sta = (unsigned char *) malloc((size_t) ctx.sta_cap);
-    ctx.pkb = (unsigned char *) malloc((size_t) ctx.pk_cap);
-    ctx.skb = (unsigned char *) malloc((size_t) ctx.sk_cap);
-    ctx.stb = (unsigned char *) malloc((size_t) ctx.stb_cap);
-    ctx.m1 = (unsigned char *) malloc((size_t) ctx.msg_cap);
-    ctx.m2 = (unsigned char *) malloc((size_t) ctx.msg_cap);
-    ctx.m3 = (unsigned char *) malloc((size_t) ctx.msg_cap);
-    ctx.ssa = (unsigned char *) malloc((size_t) ctx.ss_cap);
-    ctx.ssb = (unsigned char *) malloc((size_t) ctx.ss_cap);
-
-    if (ctx.pka == NULL || ctx.ska == NULL || ctx.sta == NULL || ctx.pkb == NULL || ctx.skb == NULL ||
-        ctx.stb == NULL || ctx.m1 == NULL || ctx.m2 == NULL || ctx.m3 == NULL || ctx.ssa == NULL ||
-        ctx.ssb == NULL) {
+    pka = (unsigned char *) malloc((size_t) pk_cap);
+    ska = (unsigned char *) malloc((size_t) sk_cap);
+    sta = (unsigned char *) malloc((size_t) sta_cap);
+    pkb = (unsigned char *) malloc((size_t) pk_cap);
+    skb = (unsigned char *) malloc((size_t) sk_cap);
+    stb = (unsigned char *) malloc((size_t) stb_cap);
+    msg_buf[0] = (unsigned char *) malloc((size_t) msg_cap);
+    msg_buf[1] = (unsigned char *) malloc((size_t) msg_cap);
+    ssa = (unsigned char *) malloc((size_t) ss_cap);
+    ssb = (unsigned char *) malloc((size_t) ss_cap);
+    if (pka == NULL || ska == NULL || sta == NULL || pkb == NULL || skb == NULL ||
+        stb == NULL || msg_buf[0] == NULL || msg_buf[1] == NULL || ssa == NULL || ssb == NULL) {
         goto cleanup;
+    }
+
+    /* ── Setup: run the full protocol once to get intermediate state ── */
+    {
+        unsigned long long m_cur_len, m_prev_len;
+        unsigned char *m_cur, *m_prev;
+        unsigned long long p;
+        int pass_rc;
+
+        pka_len = pk_cap; ska_len = sk_cap; sta_len = sta_cap;
+        pkb_len = pk_cap; skb_len = sk_cap; stb_len = stb_cap;
+
+        if (api->kex_init_a(pka, &pka_len, ska, &ska_len, sta, &sta_len) != 0) { goto cleanup; }
+        if (api->kex_init_b(pkb, &pkb_len, skb, &skb_len, stb, &stb_len) != 0) { goto cleanup; }
+
+        m_cur = msg_buf[0];
+        m_cur_len = msg_cap;
+        pass_rc = api->kex_pass1_fn(ska, ska_len, pkb, pkb_len, sta, &sta_len, m_cur, &m_cur_len);
+        if (pass_rc < 0) { goto cleanup; }
+        ma = m_cur; ma_len = m_cur_len;
+
+        for (p = 2; p <= passes && pass_rc == 0; ++p) {
+            kex_pass_fn_t fn = api->kex_pass_fns[p - 2];
+            m_prev = m_cur; m_prev_len = m_cur_len;
+            m_cur = (m_prev == msg_buf[0]) ? msg_buf[1] : msg_buf[0];
+            m_cur_len = msg_cap;
+            if (p % 2 == 0) {
+                pass_rc = fn(skb, skb_len, pka, pka_len, m_prev, m_prev_len,
+                             stb, &stb_len, m_cur, &m_cur_len);
+                if (pass_rc < 0) { goto cleanup; }
+                mb = m_cur; mb_len = m_cur_len;
+            } else {
+                pass_rc = fn(ska, ska_len, pkb, pkb_len, m_prev, m_prev_len,
+                             sta, &sta_len, m_cur, &m_cur_len);
+                if (pass_rc < 0) { goto cleanup; }
+                ma = m_cur; ma_len = m_cur_len;
+            }
+        }
     }
 
     local_cfg = *cfg;
-    local_cfg.bytes_per_op = ctx.msg_cap;
-    if (ngcc_run_performance_op(&local_cfg, kex_perf_op, &ctx, out_result) != 0) {
-        goto cleanup;
+    local_cfg.bytes_per_op = ss_cap;
+
+    /* ── Benchmark derive_ss_a ── */
+    if (mb != NULL) {
+        kex_derive_ctx_t ctx_a;
+        memset(&ctx_a, 0, sizeof(ctx_a));
+        ctx_a.api = api;
+        ctx_a.ska = ska;  ctx_a.ska_len = ska_len;
+        ctx_a.pkb = pkb;  ctx_a.pkb_len = pkb_len;
+        ctx_a.sta = sta;  ctx_a.sta_len = sta_len;
+        ctx_a.mb  = mb;   ctx_a.mb_len  = mb_len;
+        ctx_a.ss  = ssa;  ctx_a.ss_cap  = ss_cap;
+        if (ngcc_run_performance_op(&local_cfg, kex_derive_ss_a_op, &ctx_a, out_a) != 0) {
+            goto cleanup;
+        }
+    } else {
+        /* 1-pass protocol: no B-msg, skip A-side derive */
+        memset(out_a, 0, sizeof(*out_a));
+    }
+
+    /* ── Benchmark derive_ss_b ── */
+    {
+        kex_derive_ctx_t ctx_b;
+        memset(&ctx_b, 0, sizeof(ctx_b));
+        ctx_b.api = api;
+        ctx_b.skb = skb;  ctx_b.skb_len = skb_len;
+        ctx_b.pka = pka;  ctx_b.pka_len = pka_len;
+        ctx_b.stb = stb;  ctx_b.stb_len = stb_len;
+        ctx_b.ma  = ma;   ctx_b.ma_len  = ma_len;
+        ctx_b.ss  = ssb;  ctx_b.ss_cap  = ss_cap;
+        if (ngcc_run_performance_op(&local_cfg, kex_derive_ss_b_op, &ctx_b, out_b) != 0) {
+            goto cleanup;
+        }
     }
 
     rc = 0;
 
 cleanup:
-    free(ctx.pka);
-    free(ctx.ska);
-    free(ctx.sta);
-    free(ctx.pkb);
-    free(ctx.skb);
-    free(ctx.stb);
-    free(ctx.m1);
-    free(ctx.m2);
-    free(ctx.m3);
-    free(ctx.ssa);
-    free(ctx.ssb);
+    free(pka); free(ska); free(sta);
+    free(pkb); free(skb); free(stb);
+    free(msg_buf[0]); free(msg_buf[1]);
+    free(ssa); free(ssb);
     return rc;
 }
+

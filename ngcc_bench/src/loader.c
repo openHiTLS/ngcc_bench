@@ -52,6 +52,9 @@ static int load_kem_symbols(void *handle, ngcc_api_t *api) {
 }
 
 static int load_kex_symbols(void *handle, ngcc_api_t *api) {
+    unsigned long long passes;
+    unsigned long long i;
+
     if (load_symbol(handle, "kex_get_passes_num", (void **) &api->kex_get_passes_num) != 0 ||
         load_symbol(handle, "kex_get_pk_len_bytes", (void **) &api->kex_get_pk_len_bytes) != 0 ||
         load_symbol(handle, "kex_get_sk_len_bytes", (void **) &api->kex_get_sk_len_bytes) != 0 ||
@@ -61,13 +64,42 @@ static int load_kex_symbols(void *handle, ngcc_api_t *api) {
         load_symbol(handle, "kex_get_total_msg_len_bytes", (void **) &api->kex_get_total_msg_len_bytes) != 0 ||
         load_symbol(handle, "kex_init_a", (void **) &api->kex_init_a) != 0 ||
         load_symbol(handle, "kex_init_b", (void **) &api->kex_init_b) != 0 ||
-        load_symbol(handle, "kex_generate_pass1_msg_a", (void **) &api->kex_generate_pass1_msg_a) != 0 ||
-        load_symbol(handle, "kex_generate_pass2_msg_b", (void **) &api->kex_generate_pass2_msg_b) != 0 ||
-        load_symbol(handle, "kex_generate_pass3_msg_a", (void **) &api->kex_generate_pass3_msg_a) != 0 ||
         load_symbol(handle, "kex_derive_ss_a", (void **) &api->kex_derive_ss_a) != 0 ||
         load_symbol(handle, "kex_derive_ss_b", (void **) &api->kex_derive_ss_b) != 0) {
         return -1;
     }
+
+    passes = api->kex_get_passes_num();
+    if (passes == 0 || passes > 20) {
+        fprintf(stderr, "[ERROR][loader] kex_get_passes_num returned invalid value: %llu\n", passes);
+        return -1;
+    }
+
+    api->kex_passes_num = passes;
+
+    /* Load pass1 (always A-side, 8 params) */
+    if (load_symbol(handle, "kex_generate_pass1_msg_a", (void **) &api->kex_pass1_fn) != 0) {
+        return -1;
+    }
+
+    /* Load pass2..N (10 params each) */
+    if (passes > 1) {
+        api->kex_pass_fns = (kex_pass_fn_t *) calloc((size_t) (passes - 1), sizeof(kex_pass_fn_t));
+        if (api->kex_pass_fns == NULL) {
+            return -1;
+        }
+        for (i = 2; i <= passes; ++i) {
+            char sym_name[64];
+            const char *side = (i % 2 == 1) ? "a" : "b";  /* pass 2,4,6..=b; 3,5,7..=a */
+            snprintf(sym_name, sizeof(sym_name), "kex_generate_pass%llu_msg_%s", i, side);
+            if (load_symbol(handle, sym_name, (void **) &api->kex_pass_fns[i - 2]) != 0) {
+                free(api->kex_pass_fns);
+                api->kex_pass_fns = NULL;
+                return -1;
+            }
+        }
+    }
+
     return 0;
 }
 
@@ -97,12 +129,12 @@ int ngcc_load_library(const char *lib_path, unsigned int test_mask,
         ngcc_unload_library(out_lib);
         return -1;
     }
-    if ((test_mask & (TEST_MASK_DSA | TEST_MASK_DSA_KEYGEN | TEST_MASK_DSA_SIG | TEST_MASK_DSA_VERIFY)) &&
+    if ((test_mask & TEST_MASK_SIG) &&
         load_sig_symbols(handle, api) != 0) {
         ngcc_unload_library(out_lib);
         return -1;
     }
-    if ((test_mask & (TEST_MASK_KEM | TEST_MASK_KEM_KEYGEN | TEST_MASK_KEM_ENCAP | TEST_MASK_KEM_DECAP)) &&
+    if ((test_mask & TEST_MASK_KEM) &&
         load_kem_symbols(handle, api) != 0) {
         ngcc_unload_library(out_lib);
         return -1;
@@ -119,6 +151,8 @@ void ngcc_unload_library(ngcc_library_t *lib) {
     if (lib == NULL) {
         return;
     }
+
+    free(lib->api.kex_pass_fns);
 
     if (lib->handle != NULL) {
         dlclose(lib->handle);

@@ -19,7 +19,7 @@ void print_version(void) {
 void print_usage(const char *prog) {
     printf("ngcc_bench %s\n\n", NGCC_VERSION);
     printf("Usage:\n");
-    printf("  %s --lib /path/to/lib.so --test hash|dsa|dsa-keygen|dsa-sig|dsa-verify|kem|kem-keygen|kem-encap|kem-decap|kex|all --mode correctness|performance|memory|stability|all\n", prog);
+    printf("  %s --lib /path/to/lib.so --test hash|sig|kem|kex|all --mode correctness|performance|memory|stability|all\n", prog);
     printf("     [--digest-len-bits BITS]\n");
     printf("     [--duration-hours H] [--stability-max-cases N] [--stability-sample-ms MS]\n");
     printf("     [--json-out PATH] [--kat FILE]\n");
@@ -106,36 +106,12 @@ int parse_test_mask(const char *s, unsigned int *out_mask) {
         *out_mask = TEST_MASK_HASH;
         return 0;
     }
-    if (strcmp(s, "dsa") == 0) {
-        *out_mask = TEST_MASK_DSA;
-        return 0;
-    }
-    if (strcmp(s, "dsa-keygen") == 0) {
-        *out_mask = TEST_MASK_DSA_KEYGEN;
-        return 0;
-    }
-    if (strcmp(s, "dsa-sig") == 0) {
-        *out_mask = TEST_MASK_DSA_SIG;
-        return 0;
-    }
-    if (strcmp(s, "dsa-verify") == 0) {
-        *out_mask = TEST_MASK_DSA_VERIFY;
+    if (strcmp(s, "sig") == 0) {
+        *out_mask = TEST_MASK_SIG;
         return 0;
     }
     if (strcmp(s, "kem") == 0) {
         *out_mask = TEST_MASK_KEM;
-        return 0;
-    }
-    if (strcmp(s, "kem-keygen") == 0) {
-        *out_mask = TEST_MASK_KEM_KEYGEN;
-        return 0;
-    }
-    if (strcmp(s, "kem-encap") == 0) {
-        *out_mask = TEST_MASK_KEM_ENCAP;
-        return 0;
-    }
-    if (strcmp(s, "kem-decap") == 0) {
-        *out_mask = TEST_MASK_KEM_DECAP;
         return 0;
     }
     if (strcmp(s, "kex") == 0) {

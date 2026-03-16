@@ -115,7 +115,7 @@ def main():
     cur = load_json(args.candidate)
 
     ok = True
-    algos = ("hash", "dsa", "kem", "kex")
+    algos = ("hash", "sig", "kem", "kex")
     cv_keys = ("throughput_cv_percent", "time_cv_percent", "cycles_cv_percent")
 
     for algo in algos:
