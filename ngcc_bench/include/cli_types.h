@@ -20,7 +20,7 @@
 #define NGCC_PERF_ITERATIONS 10000
 #define NGCC_STABILITY_MSG_LEN 131072
 
-static const size_t k_msg_lens[] = {1024, 4096, 131072, 1048576};
+static const size_t k_msg_lens[] = {32, 128, 512, 1024, 4096, 8192, 16384, 65536};
 #define NGCC_NUM_MSG_LENS (sizeof(k_msg_lens) / sizeof(k_msg_lens[0]))
 
 /* ── Mode mask ─────────────────────────────────────────────────── */
@@ -81,9 +81,15 @@ typedef struct {
     run_status_t correctness_status;
     run_status_t performance_status;
     run_status_t stability_status;
+    run_status_t memory_status;
+    int is_hash;  /* 1 = hash (byte throughput), 0 = pubkey (op throughput) */
     ngcc_perf_result_t performance[NGCC_NUM_MSG_LENS];
-    int performance_count;  /* how many msg_lens actually ran */
+    const char *performance_labels[NGCC_NUM_MSG_LENS]; /* key labels for JSON (Chinese) */
+    const char *performance_labels_en[NGCC_NUM_MSG_LENS]; /* key labels for JSON (English) */
+    int performance_count;  /* how many entries actually ran */
     ngcc_stability_result_t stability;
+    uint64_t heap_baseline_bytes;
+    uint64_t heap_peak_bytes;
     int kat_used;
     unsigned long long kat_total;
     unsigned long long kat_passed;
@@ -93,10 +99,7 @@ typedef struct {
 /* ── Overall report ────────────────────────────────────────────── */
 typedef struct {
     test_report_t tests[NGCC_NUM_TESTS];
-    run_status_t memory_status;
     ngcc_static_mem_t static_mem;
-    uint64_t memory_heap_baseline_bytes;
-    uint64_t memory_heap_peak_bytes;
 } run_report_t;
 
 /* ── Shared test table (defined in main.c) ─────────────────────── */

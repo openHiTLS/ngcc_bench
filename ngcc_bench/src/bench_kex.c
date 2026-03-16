@@ -118,21 +118,6 @@ static int kex_run_once(const ngcc_api_t *api,
         }
     }
 
-    /* For 1-pass protocol: mb is NULL (no B message), derive_ss_a uses pkb directly;
-     * this is handled by the derive function itself. For multi-pass: mb/ma point to last msgs. */
-    if (mb == NULL) {
-        /* 1-pass: B derives from last A-msg, A has no B-msg to derive from.
-         * Only B-side derive is possible. */
-        if (api->kex_derive_ss_b(skb, skb_len, pka, pka_len, ma, ma_len, stb, stb_len, ssb, &ssb_len) != 0) {
-            return -1;
-        }
-        /* For 1-pass, we may not be able to verify A-side without a B-msg.
-         * Skip A-side derive and just check B output is valid. */
-        if (ssb_len == 0 || ssb_len > ss_cap) {
-            return -1;
-        }
-        return 0;
-    }
 
     if (api->kex_derive_ss_a(ska, ska_len, pkb, pkb_len, mb, mb_len, sta, sta_len, ssa, &ssa_len) != 0) {
         return -1;
@@ -279,8 +264,7 @@ static int path_is_directory_kex(const char *path) {
     return S_ISDIR(st.st_mode);
 }
 
-/* Maximum number of KEX passes to scan for (M1..M{N}, Pass{N}_Sta/Stb). */
-#define KEX_MAX_PASS_SCAN 10
+
 
 static int kex_field_populated(const ngcc_kat_field_t *f) {
     return f != NULL && f->data != NULL && f->len > 0;
@@ -366,7 +350,7 @@ static int verify_kex_kat_vectors(const ngcc_api_t *api,
          *   Odd passes (1,3,5...) → message from A, state update for Sta
          *   Even passes (2,4,6...) → message from B, state update for Stb
          * Also validate _Len consistency for each populated field. */
-        for (pass = 1; pass <= KEX_MAX_PASS_SCAN; ++pass) {
+        for (pass = 1; pass <= (int) api->kex_passes_num; ++pass) {
             char m_name[16];
             char m_len_name[24];
             char st_name[24];
@@ -732,7 +716,7 @@ int ngcc_kex_derive_ss_performance(const ngcc_api_t *api,
     local_cfg.bytes_per_op = ss_cap;
 
     /* ── Benchmark derive_ss_a ── */
-    if (mb != NULL) {
+    {
         kex_derive_ctx_t ctx_a;
         memset(&ctx_a, 0, sizeof(ctx_a));
         ctx_a.api = api;
@@ -744,9 +728,6 @@ int ngcc_kex_derive_ss_performance(const ngcc_api_t *api,
         if (ngcc_run_performance_op(&local_cfg, kex_derive_ss_a_op, &ctx_a, out_a) != 0) {
             goto cleanup;
         }
-    } else {
-        /* 1-pass protocol: no B-msg, skip A-side derive */
-        memset(out_a, 0, sizeof(*out_a));
     }
 
     /* ── Benchmark derive_ss_b ── */

@@ -7,6 +7,8 @@
 
 #include "json_report.h"
 
+#define L(lang, zh, en) ((lang) == LANG_EN ? (en) : (zh))
+
 #ifndef NGCC_VERSION
 #define NGCC_VERSION "unknown"
 #endif
@@ -174,7 +176,7 @@ static void write_report_metadata(json_writer_t *w, const cli_options_t *opts) {
     jw_end_object(w);
 }
 
-static void write_environment_metadata(json_writer_t *w) {
+static void write_environment_metadata(json_writer_t *w, int lang) {
     char hostname[256];
     char cwd[PATH_MAX];
     struct utsname uts;
@@ -203,13 +205,13 @@ static void write_environment_metadata(json_writer_t *w) {
         machine_value = uts.machine;
     }
 
-    jw_begin_object(w, "environment");
-    jw_key_optional_str(w, "hostname", hostname_value);
-    jw_key_optional_str(w, "cwd", cwd_value);
-    jw_key_optional_str(w, "sysname", sysname_value);
-    jw_key_optional_str(w, "release", release_value);
-    jw_key_optional_str(w, "version", version_value);
-    jw_key_optional_str(w, "machine", machine_value);
+    jw_begin_object(w, L(lang, "运行环境", "environment"));
+    jw_key_optional_str(w, L(lang, "主机名", "hostname"), hostname_value);
+    jw_key_optional_str(w, L(lang, "工作目录", "cwd"), cwd_value);
+    jw_key_optional_str(w, L(lang, "操作系统", "sysname"), sysname_value);
+    jw_key_optional_str(w, L(lang, "内核版本", "release"), release_value);
+    jw_key_optional_str(w, L(lang, "系统版本", "version"), version_value);
+    jw_key_optional_str(w, L(lang, "处理器架构", "machine"), machine_value);
     jw_end_object(w);
 }
 
@@ -217,7 +219,9 @@ static void write_environment_metadata(json_writer_t *w) {
 
 int write_json_report(const cli_options_t *opts,
                       const run_report_t *report,
-                      int overall_failed) {
+                      int overall_failed,
+                      int lang,
+                      const char *out_path) {
     FILE *fp;
     time_t now;
     struct tm tm_now;
@@ -225,13 +229,13 @@ int write_json_report(const cli_options_t *opts,
     size_t i;
     json_writer_t w;
 
-    if (opts == NULL || report == NULL || opts->json_out_path == NULL) {
+    if (opts == NULL || report == NULL || out_path == NULL) {
         return 0;
     }
 
-    fp = fopen(opts->json_out_path, "w");
+    fp = fopen(out_path, "w");
     if (fp == NULL) {
-        fprintf(stderr, "[ERROR][report] failed to open json report: %s\n", opts->json_out_path);
+        fprintf(stderr, "[ERROR][report] failed to open json report: %s\n", out_path);
         return -1;
     }
 
@@ -246,175 +250,228 @@ int write_json_report(const cli_options_t *opts,
     jw_init(&w, fp);
     jw_begin_object(&w, NULL);
 
-    jw_key_int(&w, "schema_version", 4);
-    jw_key_str(&w, "timestamp", timestamp);
-    jw_key_str(&w, "library", opts->lib_path);
-    write_report_metadata(&w, opts);
-    write_environment_metadata(&w);
+    jw_key_int(&w, L(lang, "报告版本", "schema_version"), 4);
+    jw_key_str(&w, L(lang, "时间戳", "timestamp"), timestamp);
+    jw_key_str(&w, L(lang, "算法库路径", "library"), opts->lib_path);
+
+    /* 报告信息 */
+    jw_begin_object(&w, L(lang, "报告信息", "report_metadata"));
+    jw_key_str(&w, L(lang, "生成工具", "generator"), "ngcc_bench");
+    jw_key_str(&w, L(lang, "工具版本", "generator_version"), NGCC_VERSION);
+    jw_key_str(&w, L(lang, "输出路径", "json_out_path"), opts->json_out_path);
+    jw_end_object(&w);
+
+    write_environment_metadata(&w, lang);
 
     /* options */
-    jw_begin_object(&w, "options");
-    jw_key_llu(&w, "test_mask", opts->test_mask);
-    jw_key_llu(&w, "mode_mask", opts->mode_mask);
-    jw_key_double(&w, "duration_hours", opts->duration_hours);
-    jw_key_llu(&w, "stability_max_cases", opts->stability_max_cases);
-    jw_key_double(&w, "stability_sample_ms", opts->stability_sample_ms);
+    {
+        char tests_str[64] = "";
+        char modes_str[128] = "";
+        if (opts->test_mask & TEST_MASK_HASH) { strcat(tests_str, "hash,"); }
+        if (opts->test_mask & TEST_MASK_SIG)  { strcat(tests_str, "sig,"); }
+        if (opts->test_mask & TEST_MASK_KEM)  { strcat(tests_str, "kem,"); }
+        if (opts->test_mask & TEST_MASK_KEX)  { strcat(tests_str, "kex,"); }
+        if (tests_str[0] != '\0') { tests_str[strlen(tests_str) - 1] = '\0'; }
 
-    jw_begin_object(&w, "stability_thresholds");
-    jw_key_double(&w, "stable_throughput_cv_percent", opts->stability_thresholds.stable_throughput_cv_percent);
-    jw_key_double(&w, "stable_cycles_cv_percent", opts->stability_thresholds.stable_cycles_cv_percent);
-    jw_key_double(&w, "stable_time_cv_percent", opts->stability_thresholds.stable_time_cv_percent);
-    jw_key_double(&w, "stable_memory_growth_percent", opts->stability_thresholds.stable_memory_growth_percent);
-    jw_key_double(&w, "stable_error_rate_percent", opts->stability_thresholds.stable_error_rate_percent);
-    jw_key_double(&w, "warning_throughput_cv_percent", opts->stability_thresholds.warning_throughput_cv_percent);
-    jw_key_double(&w, "warning_cycles_cv_percent", opts->stability_thresholds.warning_cycles_cv_percent);
-    jw_key_double(&w, "warning_time_cv_percent", opts->stability_thresholds.warning_time_cv_percent);
-    jw_key_double(&w, "warning_memory_growth_percent", opts->stability_thresholds.warning_memory_growth_percent);
-    jw_key_double(&w, "warning_error_rate_percent", opts->stability_thresholds.warning_error_rate_percent);
-    jw_end_object(&w); /* stability_thresholds */
+        if (opts->mode_mask & MODE_MASK_CORRECTNESS) { strcat(modes_str, "correctness,"); }
+        if (opts->mode_mask & MODE_MASK_PERFORMANCE) { strcat(modes_str, "performance,"); }
+        if (opts->mode_mask & MODE_MASK_MEMORY)      { strcat(modes_str, "memory,"); }
+        if (opts->mode_mask & MODE_MASK_STABILITY)   { strcat(modes_str, "stability,"); }
+        if (modes_str[0] != '\0') { modes_str[strlen(modes_str) - 1] = '\0'; }
+
+        jw_begin_object(&w, L(lang, "测试配置", "options"));
+        jw_key_str(&w, L(lang, "测试算法", "tests"), tests_str);
+        jw_key_str(&w, L(lang, "测试模式", "modes"), modes_str);
+    }
+    jw_key_double(&w, L(lang, "稳定性测试时长(小时)", "duration_hours"), opts->duration_hours);
+    jw_key_llu(&w, L(lang, "稳定性最大用例数(次)", "stability_max_cases"), opts->stability_max_cases);
+    jw_key_double(&w, L(lang, "稳定性采样间隔(毫秒)", "stability_sample_ms"), opts->stability_sample_ms);
+
+    jw_begin_object(&w, L(lang, "稳定性判定阈值", "stability_thresholds"));
+    jw_key_double(&w, L(lang, "吞吐量变异系数(%)", "throughput_cv_percent"), opts->stability_thresholds.stable_throughput_cv_percent);
+    jw_key_double(&w, L(lang, "CPU周期变异系数(%)", "cycles_cv_percent"), opts->stability_thresholds.stable_cycles_cv_percent);
+    jw_key_double(&w, L(lang, "耗时变异系数(%)", "time_cv_percent"), opts->stability_thresholds.stable_time_cv_percent);
+    jw_key_double(&w, L(lang, "内存增长(%)", "memory_growth_percent"), opts->stability_thresholds.stable_memory_growth_percent);
+    jw_key_double(&w, L(lang, "错误率(%)", "error_rate_percent"), opts->stability_thresholds.stable_error_rate_percent);
+    jw_end_object(&w);
 
     if (opts->kat_path != NULL) {
-        jw_key_str(&w, "kat", opts->kat_path);
+        jw_key_str(&w, L(lang, "KAT向量路径", "kat_path"), opts->kat_path);
     } else {
-        jw_key_null(&w, "kat");
+        jw_key_null(&w, L(lang, "KAT向量路径", "kat_path"));
     }
-    jw_end_object(&w); /* options */
+    jw_end_object(&w); /* 测试配置 */
 
-    /* tests */
-    jw_begin_object(&w, "tests");
+    jw_begin_object(&w, L(lang, "测试结果", "test_results"));
     for (i = 0; i < sizeof(report->tests) / sizeof(report->tests[0]); ++i) {
         const test_report_t *test = &report->tests[i];
 
         jw_begin_object(&w, test->name);
-        jw_key_bool(&w, "selected", test->selected);
-        jw_key_str(&w, "correctness", status_to_text(test->correctness_status));
-        jw_key_str(&w, "performance", status_to_text(test->performance_status));
-        jw_key_str(&w, "stability", stability_status_to_text(test));
+        jw_key_bool(&w, L(lang, "已选择", "selected"), test->selected);
+        jw_key_str(&w, L(lang, "正确性", "correctness"), status_to_text(test->correctness_status));
+        jw_key_str(&w, L(lang, "性能", "performance"), status_to_text(test->performance_status));
+        jw_key_str(&w, L(lang, "稳定性", "stability"), stability_status_to_text(test));
 
         /* kat */
         if (test->kat_used) {
-            jw_begin_object(&w, "kat");
-            jw_key_llu(&w, "total", test->kat_total);
-            jw_key_llu(&w, "passed", test->kat_passed);
-            jw_key_llu(&w, "failed", test->kat_failed);
+            jw_begin_object(&w, L(lang, "KAT验证", "kat"));
+            jw_key_llu(&w, L(lang, "总数(条)", "total"), test->kat_total);
+            jw_key_llu(&w, L(lang, "通过(条)", "passed"), test->kat_passed);
+            jw_key_llu(&w, L(lang, "失败(条)", "failed"), test->kat_failed);
             jw_end_object(&w);
         } else {
-            jw_key_null(&w, "kat");
+            jw_key_null(&w, L(lang, "KAT验证", "kat"));
         }
 
         /* performance_metrics — one object per msg_len */
         if (test->performance_status == STATUS_PASS && test->performance_count > 0) {
             int pi;
-            jw_begin_object(&w, "performance_metrics");
+            jw_begin_object(&w, L(lang, "性能指标", "performance_metrics"));
             for (pi = 0; pi < test->performance_count; ++pi) {
                 const ngcc_perf_result_t *p = &test->performance[pi];
-                char key[32];
-                snprintf(key, sizeof(key), "%zuB", k_msg_lens[pi]);
-                jw_begin_object(&w, key);
-                jw_key_llu(&w, "msg_len", (unsigned long long) k_msg_lens[pi]);
-                jw_key_llu(&w, "iterations", p->iterations);
-                jw_key_llu(&w, "warmup_iterations", p->warmup_iterations);
-                jw_key_double(&w, "elapsed_ms", p->elapsed_ms);
-                jw_key_double(&w, "bytes_per_op", p->bytes_per_op);
-                jw_key_double(&w, "cycles_per_op", p->cycles_per_op);
-                jw_key_double(&w, "cycles_stddev", p->cycles_stddev);
-                jw_key_double(&w, "cycles_min", p->cycles_min);
-                jw_key_double(&w, "cycles_max", p->cycles_max);
-                jw_key_double(&w, "cycles_median", p->cycles_median);
-                jw_key_double(&w, "cycles_per_byte", p->cycles_per_byte);
-                jw_key_double(&w, "cycles_cv_percent", p->cycles_cv_percent);
-                jw_key_double(&w, "ops_per_sec", p->ops_per_sec);
-                jw_key_double(&w, "bytes_per_sec", p->bytes_per_sec);
-                jw_key_double(&w, "time_ms_mean", p->time_ms_mean);
-                jw_key_double(&w, "time_ms_median", p->time_ms_median);
-                jw_key_double(&w, "time_ms_stddev", p->time_ms_stddev);
-                jw_key_double(&w, "time_ms_cv_percent", p->time_ms_cv_percent);
+                const char *label = (lang == LANG_EN) ? test->performance_labels_en[pi] : test->performance_labels[pi];
+                if (label == NULL) { label = "unknown"; }
+                jw_begin_object(&w, label);
+                jw_key_llu(&w, L(lang, "测试次数(次)", "iterations"), p->iterations);
+                jw_key_llu(&w, L(lang, "预热次数(次)", "warmup_iterations"), p->warmup_iterations);
+                jw_key_double(&w, L(lang, "总耗时(毫秒)", "elapsed_ms"), p->elapsed_ms);
+                if (test->is_hash) {
+                    jw_key_double(&w, L(lang, "每次操作数据量(字节)", "bytes_per_op"), p->bytes_per_op);
+                    if (p->cycles_available) {
+                        jw_key_double(&w, L(lang, "CPU周期均值(周期/次)", "cycles_per_op_mean"), p->cycles_per_op);
+                        jw_key_double(&w, L(lang, "CPU周期标准差(周期)", "cycles_stddev"), p->cycles_stddev);
+                        jw_key_double(&w, L(lang, "CPU周期最小值(周期)", "cycles_min"), p->cycles_min);
+                        jw_key_double(&w, L(lang, "CPU周期最大值(周期)", "cycles_max"), p->cycles_max);
+                        jw_key_double(&w, L(lang, "CPU周期中位数(周期)", "cycles_median"), p->cycles_median);
+                        jw_key_double(&w, L(lang, "CPU周期每字节(周期/字节)", "cycles_per_byte"), p->cycles_per_byte);
+                        jw_key_double(&w, L(lang, "CPU周期变异系数(%)", "cycles_cv_percent"), p->cycles_cv_percent);
+                    }
+                    jw_key_double(&w, L(lang, "字节吞吐量(字节/秒)", "bytes_per_sec"), p->bytes_per_sec);
+                } else {
+                    if (p->cycles_available) {
+                        jw_key_double(&w, L(lang, "CPU周期均值(周期/次)", "cycles_per_op_mean"), p->cycles_per_op);
+                        jw_key_double(&w, L(lang, "CPU周期标准差(周期)", "cycles_stddev"), p->cycles_stddev);
+                        jw_key_double(&w, L(lang, "CPU周期最小值(周期)", "cycles_min"), p->cycles_min);
+                        jw_key_double(&w, L(lang, "CPU周期最大值(周期)", "cycles_max"), p->cycles_max);
+                        jw_key_double(&w, L(lang, "CPU周期中位数(周期)", "cycles_median"), p->cycles_median);
+                        jw_key_double(&w, L(lang, "CPU周期变异系数(%)", "cycles_cv_percent"), p->cycles_cv_percent);
+                    }
+                    jw_key_double(&w, L(lang, "操作吞吐量(次/秒)", "ops_per_sec"), p->ops_per_sec);
+                }
+                jw_key_double(&w, L(lang, "单次耗时均值(毫秒)", "time_ms_mean"), p->time_ms_mean);
+                jw_key_double(&w, L(lang, "单次耗时中位数(毫秒)", "time_ms_median"), p->time_ms_median);
+                jw_key_double(&w, L(lang, "单次耗时标准差(毫秒)", "time_ms_stddev"), p->time_ms_stddev);
+                jw_key_double(&w, L(lang, "单次耗时变异系数(%)", "time_ms_cv_percent"), p->time_ms_cv_percent);
                 jw_end_object(&w);
             }
             jw_end_object(&w);
         } else {
-            jw_key_null(&w, "performance_metrics");
+            jw_key_null(&w, L(lang, "性能指标", "performance_metrics"));
         }
 
         /* stability_metrics */
         if (test->stability_status != STATUS_SKIPPED) {
-            jw_begin_object(&w, "stability_metrics");
-            jw_key_llu(&w, "cases_run", test->stability.cases_run);
-            jw_key_llu(&w, "sample_count", test->stability.sample_count);
-            jw_key_double(&w, "elapsed_seconds", test->stability.elapsed_seconds);
-            jw_key_bool(&w, "interrupted", test->stability.interrupted);
-            jw_key_bool(&w, "failed", test->stability.failed);
-            jw_key_str(&w, "status", test->stability.status);
-            jw_key_double(&w, "throughput_mean_ops", test->stability.throughput_mean_ops);
-            jw_key_double(&w, "throughput_stddev_ops", test->stability.throughput_stddev_ops);
-            jw_key_double(&w, "throughput_cv_percent", test->stability.throughput_cv_percent);
-            jw_key_double(&w, "throughput_min_ops", test->stability.throughput_min_ops);
-            jw_key_double(&w, "throughput_max_ops", test->stability.throughput_max_ops);
-            jw_key_double(&w, "throughput_mean_bytes", test->stability.throughput_mean_bytes);
-            jw_key_double(&w, "throughput_stddev_bytes", test->stability.throughput_stddev_bytes);
-            jw_key_double(&w, "throughput_cv_percent_bytes", test->stability.throughput_cv_percent_bytes);
-            jw_key_double(&w, "throughput_min_bytes", test->stability.throughput_min_bytes);
-            jw_key_double(&w, "throughput_max_bytes", test->stability.throughput_max_bytes);
-            jw_key_double(&w, "bytes_per_case", test->stability.bytes_per_case);
-            jw_key_bool(&w, "cycles_available", test->stability.cycles_available);
-            jw_key_double(&w, "cycles_mean", test->stability.cycles_mean);
-            jw_key_double(&w, "cycles_stddev", test->stability.cycles_stddev);
-            jw_key_double(&w, "cycles_cv_percent", test->stability.cycles_cv_percent);
-            jw_key_double(&w, "cycles_min", test->stability.cycles_min);
-            jw_key_double(&w, "cycles_max", test->stability.cycles_max);
-            jw_key_double(&w, "time_mean_ms", test->stability.time_mean_ms);
-            jw_key_double(&w, "time_stddev_ms", test->stability.time_stddev_ms);
-            jw_key_double(&w, "time_cv_percent", test->stability.time_cv_percent);
-            jw_key_double(&w, "time_min_ms", test->stability.time_min_ms);
-            jw_key_double(&w, "time_max_ms", test->stability.time_max_ms);
-            jw_key_llu(&w, "memory_start_bytes", (unsigned long long) test->stability.memory_start_bytes);
-            jw_key_llu(&w, "memory_end_bytes", (unsigned long long) test->stability.memory_end_bytes);
-            jw_key_llu(&w, "memory_min_bytes", (unsigned long long) test->stability.memory_min_bytes);
-            jw_key_llu(&w, "memory_max_bytes", (unsigned long long) test->stability.memory_max_bytes);
-            jw_key_llu(&w, "memory_peak_rss_bytes", (unsigned long long) test->stability.memory_peak_rss_bytes);
-            jw_key_double(&w, "memory_growth_percent", test->stability.memory_growth_percent);
-            jw_key_llu(&w, "total_executions", test->stability.total_executions);
-            jw_key_llu(&w, "error_count", test->stability.error_count);
-            jw_key_double(&w, "error_rate_percent", test->stability.error_rate_percent);
-            jw_key_bool(&w, "performance_stable", test->stability.performance_stable);
-            jw_key_bool(&w, "memory_stable", test->stability.memory_stable);
-            jw_key_bool(&w, "correctness_stable", test->stability.correctness_stable);
-            jw_key_bool(&w, "is_stable", test->stability.is_stable);
-            jw_key_str(&w, "failure_reasons", test->stability.failure_reasons);
+            jw_begin_object(&w, L(lang, "稳定性指标", "stability_metrics"));
+            jw_key_llu(&w, L(lang, "执行用例数(次)", "cases_run"), test->stability.cases_run);
+            jw_key_llu(&w, L(lang, "采样次数(次)", "sample_count"), test->stability.sample_count);
+            jw_key_double(&w, L(lang, "总耗时(秒)", "elapsed_seconds"), test->stability.elapsed_seconds);
+            jw_key_bool(&w, L(lang, "是否中断", "interrupted"), test->stability.interrupted);
+            jw_key_bool(&w, L(lang, "是否失败", "failed_flag"), test->stability.failed);
+            jw_key_str(&w, L(lang, "状态", "status"), test->stability.status);
+            jw_key_double(&w, L(lang, "操作吞吐量均值(次/秒)", "throughput_mean_ops"), test->stability.throughput_mean_ops);
+            jw_key_double(&w, L(lang, "操作吞吐量标准差(次/秒)", "throughput_stddev_ops"), test->stability.throughput_stddev_ops);
+            jw_key_double(&w, L(lang, "操作吞吐量变异系数(%)", "throughput_cv_percent_ops"), test->stability.throughput_cv_percent);
+            jw_key_double(&w, L(lang, "操作吞吐量最小值(次/秒)", "throughput_min_ops"), test->stability.throughput_min_ops);
+            jw_key_double(&w, L(lang, "操作吞吐量最大值(次/秒)", "throughput_max_ops"), test->stability.throughput_max_ops);
+            jw_key_double(&w, L(lang, "字节吞吐量均值(字节/秒)", "throughput_mean_bytes"), test->stability.throughput_mean_bytes);
+            jw_key_double(&w, L(lang, "字节吞吐量标准差(字节/秒)", "throughput_stddev_bytes"), test->stability.throughput_stddev_bytes);
+            jw_key_double(&w, L(lang, "字节吞吐量变异系数(%)", "throughput_cv_percent_bytes"), test->stability.throughput_cv_percent_bytes);
+            jw_key_double(&w, L(lang, "字节吞吐量最小值(字节/秒)", "throughput_min_bytes"), test->stability.throughput_min_bytes);
+            jw_key_double(&w, L(lang, "字节吞吐量最大值(字节/秒)", "throughput_max_bytes"), test->stability.throughput_max_bytes);
+            if (test->stability.cycles_available) {
+                jw_key_double(&w, L(lang, "CPU周期均值(周期/次)", "cycles_per_op_mean"), test->stability.cycles_mean);
+                jw_key_double(&w, L(lang, "CPU周期标准差(周期)", "cycles_stddev"), test->stability.cycles_stddev);
+                jw_key_double(&w, L(lang, "CPU周期变异系数(%)", "cycles_cv_percent"), test->stability.cycles_cv_percent);
+                jw_key_double(&w, L(lang, "CPU周期最小值(周期)", "cycles_min"), test->stability.cycles_min);
+                jw_key_double(&w, L(lang, "CPU周期最大值(周期)", "cycles_max"), test->stability.cycles_max);
+            }
+            jw_key_double(&w, L(lang, "单次耗时均值(毫秒)", "time_ms_mean"), test->stability.time_mean_ms);
+            jw_key_double(&w, L(lang, "单次耗时标准差(毫秒)", "time_ms_stddev"), test->stability.time_stddev_ms);
+            jw_key_double(&w, L(lang, "单次耗时变异系数(%)", "time_ms_cv_percent"), test->stability.time_cv_percent);
+            jw_key_double(&w, L(lang, "单次耗时最小值(毫秒)", "time_min_ms"), test->stability.time_min_ms);
+            jw_key_double(&w, L(lang, "单次耗时最大值(毫秒)", "time_max_ms"), test->stability.time_max_ms);
+            jw_key_llu(&w, L(lang, "内存最小值(字节)", "memory_min_bytes"), (unsigned long long) test->stability.memory_min_bytes);
+            jw_key_llu(&w, L(lang, "内存最大值(字节)", "memory_max_bytes"), (unsigned long long) test->stability.memory_max_bytes);
+            jw_key_double(&w, L(lang, "内存增长(%)", "memory_growth_percent"), test->stability.memory_growth_percent);
+            jw_key_llu(&w, L(lang, "总执行次数(次)", "total_executions"), test->stability.total_executions);
+            jw_key_llu(&w, L(lang, "错误次数(次)", "error_count"), test->stability.error_count);
+            jw_key_double(&w, L(lang, "错误率(%)", "error_rate_percent"), test->stability.error_rate_percent);
+            jw_key_bool(&w, L(lang, "性能稳定", "performance_stable"), test->stability.performance_stable);
+            jw_key_bool(&w, L(lang, "内存稳定", "memory_stable"), test->stability.memory_stable);
+            jw_key_bool(&w, L(lang, "正确性稳定", "correctness_stable"), test->stability.correctness_stable);
+            jw_key_bool(&w, L(lang, "整体稳定", "is_stable"), test->stability.is_stable);
+            jw_key_str(&w, L(lang, "失败原因", "failure_reasons"), test->stability.failure_reasons);
             jw_end_object(&w);
         } else {
-            jw_key_null(&w, "stability_metrics");
+            jw_key_null(&w, L(lang, "稳定性指标", "stability_metrics"));
+        }
+
+        if (test->memory_status != STATUS_SKIPPED) {
+            jw_begin_object(&w, L(lang, "内存指标", "memory_metrics"));
+            jw_key_str(&w, L(lang, "状态", "status"), status_to_text(test->memory_status));
+            jw_key_llu(&w, L(lang, "堆内存基线(字节)", "heap_baseline_bytes"), (unsigned long long) test->heap_baseline_bytes);
+            jw_key_llu(&w, L(lang, "堆内存峰值(字节)", "heap_peak_bytes"), (unsigned long long) test->heap_peak_bytes);
+            jw_key_llu(&w, L(lang, "堆内存增量(字节)", "heap_delta_bytes"),
+                       (unsigned long long) ((long long) test->heap_peak_bytes - (long long) test->heap_baseline_bytes));
+            jw_end_object(&w);
+        } else {
+            jw_key_null(&w, L(lang, "内存指标", "memory_metrics"));
         }
 
         jw_end_object(&w); /* test */
     }
-    jw_end_object(&w); /* tests */
+    jw_end_object(&w); /* 测试结果 */
 
-    /* memory */
-    jw_begin_object(&w, "memory");
-    jw_key_str(&w, "status", status_to_text(report->memory_status));
-
-    jw_begin_object(&w, "static_mem");
-    jw_key_llu(&w, "text_bytes", (unsigned long long) report->static_mem.text_size);
-    jw_key_llu(&w, "data_bytes", (unsigned long long) report->static_mem.data_size);
-    jw_key_llu(&w, "bss_bytes", (unsigned long long) report->static_mem.bss_size);
-    jw_key_llu(&w, "rodata_bytes", (unsigned long long) report->static_mem.rodata_size);
-    jw_key_llu(&w, "total_bytes", (unsigned long long) report->static_mem.total);
-    jw_end_object(&w); /* static_mem */
-
-    jw_key_llu(&w, "heap_baseline_bytes", (unsigned long long) report->memory_heap_baseline_bytes);
-    jw_key_llu(&w, "heap_peak_bytes", (unsigned long long) report->memory_heap_peak_bytes);
+    /* 静态内存（算法库共用） */
+    jw_begin_object(&w, L(lang, "静态内存", "static_memory"));
+    jw_key_llu(&w, L(lang, "代码段(字节)", "text_bytes"), (unsigned long long) report->static_mem.text_size);
+    jw_key_llu(&w, L(lang, "数据段(字节)", "data_bytes"), (unsigned long long) report->static_mem.data_size);
+    jw_key_llu(&w, L(lang, "BSS段(字节)", "bss_bytes"), (unsigned long long) report->static_mem.bss_size);
+    jw_key_llu(&w, L(lang, "只读数据段(字节)", "rodata_bytes"), (unsigned long long) report->static_mem.rodata_size);
+    jw_key_llu(&w, L(lang, "总计(字节)", "total_bytes"), (unsigned long long) report->static_mem.total);
     jw_end_object(&w);
 
-    /* overall */
-    jw_begin_object(&w, "overall");
-    jw_key_str(&w, "status", overall_failed ? "FAIL" : "PASS");
+    /* 总体结果 */
+    jw_begin_object(&w, L(lang, "总体结果", "overall"));
+    jw_key_str(&w, L(lang, "状态", "status"), overall_failed ? "FAIL" : "PASS");
     jw_end_object(&w);
 
     jw_end_object(&w); /* root */
     fputc('\n', fp);
 
     fclose(fp);
-    printf("[report] json=%s\n", opts->json_out_path);
+    printf("[report] json=%s\n", out_path);
     return 0;
+}
+
+int write_json_reports(const cli_options_t *opts,
+                       const run_report_t *report,
+                       int overall_failed) {
+    char path_zh[4096];
+    char path_en[4096];
+    int rc;
+
+    if (opts == NULL || report == NULL || opts->json_out_path == NULL) {
+        return 0;
+    }
+
+    snprintf(path_zh, sizeof(path_zh), "%s.zh", opts->json_out_path);
+    snprintf(path_en, sizeof(path_en), "%s.en", opts->json_out_path);
+
+    rc = write_json_report(opts, report, overall_failed, LANG_ZH, path_zh);
+    if (rc != 0) {
+        return rc;
+    }
+    rc = write_json_report(opts, report, overall_failed, LANG_EN, path_en);
+    return rc;
 }

@@ -369,31 +369,6 @@ static int sig_perf_op(void *ctx_ptr) {
     return sig_verify_once(ctx->api, ctx->pk, ctx->pk_len, ctx->sn, ctx->sn_len, ctx->msg, ctx->msg_len);
 }
 
-int ngcc_sig_performance(const ngcc_api_t *api,
-                         size_t msg_len,
-                         const ngcc_perf_config_t *cfg,
-                         ngcc_perf_result_t *out_result) {
-    sig_ctx_t ctx;
-    ngcc_perf_config_t local_cfg;
-    int rc = -1;
-
-    if (cfg == NULL || out_result == NULL || alloc_sig_ctx(api, msg_len, &ctx) != 0) {
-        return -1;
-    }
-
-    local_cfg = *cfg;
-    local_cfg.bytes_per_op = (unsigned long long) msg_len;
-    if (ngcc_run_performance_op(&local_cfg, sig_perf_op, &ctx, out_result) != 0) {
-        goto out;
-    }
-
-    rc = 0;
-
-out:
-    free_sig_ctx(&ctx);
-    return rc;
-}
-
 static int sig_keygen_perf_op(void *ctx_ptr) {
     sig_ctx_t *ctx = (sig_ctx_t *) ctx_ptr;
 
