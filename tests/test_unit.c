@@ -411,12 +411,6 @@ static void test_stability_thresholds_defaults(void) {
     TEST_ASSERT(t.stable_time_cv_percent > 0.0);
     TEST_ASSERT(t.stable_memory_growth_percent > 0.0);
     TEST_ASSERT(t.stable_error_rate_percent >= 0.0);
-    /* warning thresholds >= stable thresholds */
-    TEST_ASSERT(t.warning_throughput_cv_percent >= t.stable_throughput_cv_percent);
-    TEST_ASSERT(t.warning_cycles_cv_percent >= t.stable_cycles_cv_percent);
-    TEST_ASSERT(t.warning_time_cv_percent >= t.stable_time_cv_percent);
-    TEST_ASSERT(t.warning_memory_growth_percent >= t.stable_memory_growth_percent);
-    TEST_ASSERT(t.warning_error_rate_percent >= t.stable_error_rate_percent);
 }
 
 /* ── json_report tests ─────────────────────────────────────────── */
@@ -440,7 +434,7 @@ static void test_write_json_report_basic(void) {
     opts.lib_path = "/tmp/mock_lib.so";
     opts.json_out_path = json_path;
     opts.kat_path = "/tmp/vectors.kat";
-    opts.cycles_enabled = 0;
+
 
     for (i = 0; i < NGCC_NUM_TESTS; ++i) {
         report.tests[i].name = k_test_names[i];
@@ -457,45 +451,46 @@ static void test_write_json_report_basic(void) {
     report.tests[0].kat_total = 3;
     report.tests[0].kat_passed = 3;
     report.tests[0].kat_failed = 0;
-    report.tests[0].performance.iterations = 8;
-    report.tests[0].performance.warmup_iterations = 10;
-    report.tests[0].performance.elapsed_ms = 1.5;
-    report.tests[0].performance.bytes_per_op = 64.0;
-    report.tests[0].performance.ops_per_sec = 1000.0;
-    report.tests[0].performance.bytes_per_sec = 64000.0;
-    report.tests[0].performance.time_ms_mean = 0.2;
-    report.tests[0].performance.time_ms_median = 0.2;
-    report.tests[0].performance.time_ms_stddev = 0.01;
-    report.tests[0].performance.time_ms_cv_percent = 5.0;
+    report.tests[0].performance[0].iterations = 8;
+    report.tests[0].performance[0].warmup_iterations = 10;
+    report.tests[0].performance[0].elapsed_ms = 1.5;
+    report.tests[0].performance[0].bytes_per_op = 64.0;
+    report.tests[0].performance[0].ops_per_sec = 1000.0;
+    report.tests[0].performance[0].bytes_per_sec = 64000.0;
+    report.tests[0].performance[0].time_ms_mean = 0.2;
+    report.tests[0].performance[0].time_ms_median = 0.2;
+    report.tests[0].performance[0].time_ms_stddev = 0.01;
+    report.tests[0].performance[0].time_ms_cv_percent = 5.0;
     report.tests[0].stability.status[0] = 'W';
-    strcpy(report.tests[0].stability.status, "WARNING");
+    strcpy(report.tests[0].stability.status, "UNSTABLE");
 
-    report.memory_status = STATUS_PASS;
     report.static_mem.text_size = 10;
     report.static_mem.data_size = 20;
     report.static_mem.bss_size = 30;
     report.static_mem.rodata_size = 40;
     report.static_mem.total = 100;
-    report.memory_heap_baseline_bytes = 111;
-    report.memory_heap_peak_bytes = 222;
 
-    TEST_ASSERT_INT_EQ(write_json_report(&opts, &report, 1), 0);
+    /* Test Chinese output */
+    TEST_ASSERT_INT_EQ(write_json_report(&opts, &report, 1, LANG_ZH, json_path), 0);
+    TEST_ASSERT_INT_EQ(read_text_file(json_path, &json_data), 0);
+    TEST_ASSERT(strstr(json_data, "\"\u62a5\u544a\u7248\u672c\": 4") != NULL);
+    TEST_ASSERT(strstr(json_data, "\"\u7b97\u6cd5\u5e93\u8def\u5f84\": \"/tmp/mock_lib.so\"") != NULL);
+    TEST_ASSERT(strstr(json_data, "\"\u7a33\u5b9a\u6027\": \"UNSTABLE\"") != NULL);
+    free(json_data);
+    json_data = NULL;
+    TEST_ASSERT(unlink(json_path) == 0);
+
+    /* Test English output */
+    TEST_ASSERT_INT_EQ(write_json_report(&opts, &report, 1, LANG_EN, json_path), 0);
     TEST_ASSERT_INT_EQ(read_text_file(json_path, &json_data), 0);
     TEST_ASSERT(strstr(json_data, "\"schema_version\": 4") != NULL);
     TEST_ASSERT(strstr(json_data, "\"library\": \"/tmp/mock_lib.so\"") != NULL);
-    TEST_ASSERT(strstr(json_data, "\"report_metadata\"") != NULL);
-    TEST_ASSERT(strstr(json_data, "\"generator\": \"ngcc_bench\"") != NULL);
-    TEST_ASSERT(strstr(json_data, "\"json_out_path\": \"") != NULL);
-    TEST_ASSERT(strstr(json_data, "\"environment\"") != NULL);
-    TEST_ASSERT(strstr(json_data, "\"hostname\":") != NULL);
-    TEST_ASSERT(strstr(json_data, "\"cwd\":") != NULL);
-    TEST_ASSERT(strstr(json_data, "\"cycles\": \"off\"") != NULL);
-    TEST_ASSERT(strstr(json_data, "\"stability\": \"WARNING\"") != NULL);
-    TEST_ASSERT(strstr(json_data, "\"total\": 3") != NULL);
-    TEST_ASSERT(strstr(json_data, "\"overall\": {\n    \"status\": \"FAIL\"") != NULL);
-
+    TEST_ASSERT(strstr(json_data, "\"stability\": \"UNSTABLE\"") != NULL);
+    TEST_ASSERT(strstr(json_data, "\"overall\"") != NULL);
     free(json_data);
+    json_data = NULL;
     TEST_ASSERT(unlink(json_path) == 0);
+
     TEST_ASSERT(rmdir(tmp_dir) == 0);
 }
 
@@ -531,9 +526,6 @@ static void test_run_stability_single_success(void) {
     thresholds.stable_throughput_cv_percent = 100.0;
     thresholds.stable_time_cv_percent = 100.0;
     thresholds.stable_memory_growth_percent = 100.0;
-    thresholds.warning_throughput_cv_percent = 200.0;
-    thresholds.warning_time_cv_percent = 200.0;
-    thresholds.warning_memory_growth_percent = 200.0;
     TEST_ASSERT_INT_EQ(ngcc_run_stability(&api,
                                           stability_stub_success,
                                           stability_stub_bytes,

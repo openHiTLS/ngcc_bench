@@ -21,12 +21,8 @@ void print_usage(const char *prog) {
     printf("Usage:\n");
     printf("  %s --lib /path/to/lib.so --test hash|sig|kem|kex|all --mode correctness|performance|memory|stability|all\n", prog);
     printf("     [--digest-len-bits BITS]\n");
-    printf("     [--duration-hours H] [--stability-max-cases N] [--stability-sample-ms MS]\n");
+    printf("     [--duration-hours H] [--stability-max-cases N]\n");
     printf("     [--json-out PATH] [--kat FILE]\n");
-    printf("     [--stable-throughput-cv-percent P] [--stable-cycles-cv-percent P] [--stable-time-cv-percent P]\n");
-    printf("     [--stable-memory-growth-percent P] [--stable-error-rate-percent P]\n");
-    printf("     [--warning-throughput-cv-percent P] [--warning-cycles-cv-percent P] [--warning-time-cv-percent P]\n");
-    printf("     [--warning-memory-growth-percent P] [--warning-error-rate-percent P]\n");
     printf("\n");
     printf("  %s\n", prog);
     printf("     Launch interactive menu mode.\n");
@@ -163,19 +159,8 @@ int parse_cli_options(int argc, char **argv, cli_options_t *opts) {
         {"digest-len-bits", required_argument, NULL, 'b'},
         {"duration-hours", required_argument, NULL, 'd'},
         {"stability-max-cases", required_argument, NULL, 's'},
-        {"stability-sample-ms", required_argument, NULL, OPT_STABILITY_SAMPLE_MS},
         {"json-out", required_argument, NULL, 'j'},
         {"kat", required_argument, NULL, 'k'},
-        {"stable-throughput-cv-percent", required_argument, NULL, OPT_STABLE_THROUGHPUT_CV},
-        {"stable-cycles-cv-percent", required_argument, NULL, OPT_STABLE_CYCLES_CV},
-        {"stable-time-cv-percent", required_argument, NULL, OPT_STABLE_TIME_CV},
-        {"stable-memory-growth-percent", required_argument, NULL, OPT_STABLE_MEMORY_GROWTH},
-        {"stable-error-rate-percent", required_argument, NULL, OPT_STABLE_ERROR_RATE},
-        {"warning-throughput-cv-percent", required_argument, NULL, OPT_WARNING_THROUGHPUT_CV},
-        {"warning-cycles-cv-percent", required_argument, NULL, OPT_WARNING_CYCLES_CV},
-        {"warning-time-cv-percent", required_argument, NULL, OPT_WARNING_TIME_CV},
-        {"warning-memory-growth-percent", required_argument, NULL, OPT_WARNING_MEMORY_GROWTH},
-        {"warning-error-rate-percent", required_argument, NULL, OPT_WARNING_ERROR_RATE},
         {"help", no_argument, NULL, 'h'},
         {"version", no_argument, NULL, 'v'},
         {0, 0, 0, 0}
@@ -216,80 +201,11 @@ int parse_cli_options(int argc, char **argv, cli_options_t *opts) {
                     return -1;
                 }
                 break;
-            case OPT_STABILITY_SAMPLE_MS:
-                if (parse_double_value(optarg, &opts->stability_sample_ms) != 0 ||
-                    !isfinite(opts->stability_sample_ms) ||
-                    opts->stability_sample_ms <= 0.0) {
-                    fprintf(stderr, "invalid --stability-sample-ms value: %s\n", optarg);
-                    return -1;
-                }
-                break;
-
             case 'j':
                 opts->json_out_path = optarg;
                 break;
             case 'k':
                 opts->kat_path = optarg;
-                break;
-            case OPT_STABLE_THROUGHPUT_CV:
-                if (parse_nonnegative_double_option("stable-throughput-cv-percent", optarg,
-                                                    &opts->stability_thresholds.stable_throughput_cv_percent) != 0) {
-                    return -1;
-                }
-                break;
-            case OPT_STABLE_CYCLES_CV:
-                if (parse_nonnegative_double_option("stable-cycles-cv-percent", optarg,
-                                                    &opts->stability_thresholds.stable_cycles_cv_percent) != 0) {
-                    return -1;
-                }
-                break;
-            case OPT_STABLE_TIME_CV:
-                if (parse_nonnegative_double_option("stable-time-cv-percent", optarg,
-                                                    &opts->stability_thresholds.stable_time_cv_percent) != 0) {
-                    return -1;
-                }
-                break;
-            case OPT_STABLE_MEMORY_GROWTH:
-                if (parse_nonnegative_double_option("stable-memory-growth-percent", optarg,
-                                                    &opts->stability_thresholds.stable_memory_growth_percent) != 0) {
-                    return -1;
-                }
-                break;
-            case OPT_STABLE_ERROR_RATE:
-                if (parse_nonnegative_double_option("stable-error-rate-percent", optarg,
-                                                    &opts->stability_thresholds.stable_error_rate_percent) != 0) {
-                    return -1;
-                }
-                break;
-            case OPT_WARNING_THROUGHPUT_CV:
-                if (parse_nonnegative_double_option("warning-throughput-cv-percent", optarg,
-                                                    &opts->stability_thresholds.warning_throughput_cv_percent) != 0) {
-                    return -1;
-                }
-                break;
-            case OPT_WARNING_CYCLES_CV:
-                if (parse_nonnegative_double_option("warning-cycles-cv-percent", optarg,
-                                                    &opts->stability_thresholds.warning_cycles_cv_percent) != 0) {
-                    return -1;
-                }
-                break;
-            case OPT_WARNING_TIME_CV:
-                if (parse_nonnegative_double_option("warning-time-cv-percent", optarg,
-                                                    &opts->stability_thresholds.warning_time_cv_percent) != 0) {
-                    return -1;
-                }
-                break;
-            case OPT_WARNING_MEMORY_GROWTH:
-                if (parse_nonnegative_double_option("warning-memory-growth-percent", optarg,
-                                                    &opts->stability_thresholds.warning_memory_growth_percent) != 0) {
-                    return -1;
-                }
-                break;
-            case OPT_WARNING_ERROR_RATE:
-                if (parse_nonnegative_double_option("warning-error-rate-percent", optarg,
-                                                    &opts->stability_thresholds.warning_error_rate_percent) != 0) {
-                    return -1;
-                }
                 break;
             case 'h':
                 print_usage(argv[0]);
@@ -310,13 +226,10 @@ int parse_cli_options(int argc, char **argv, cli_options_t *opts) {
 
 int validate_options(const cli_options_t *opts) {
     int correctness_selected;
-    const ngcc_stability_thresholds_t *thr;
 
     if (opts == NULL) {
         return -1;
     }
-
-    thr = &opts->stability_thresholds;
 
     if (opts->lib_path == NULL) {
         fprintf(stderr, "error: --lib is required\n");
@@ -331,20 +244,6 @@ int validate_options(const cli_options_t *opts) {
     correctness_selected = (opts->mode_mask & MODE_MASK_CORRECTNESS) != 0;
     if (opts->kat_path != NULL && !correctness_selected) {
         fprintf(stderr, "error: --kat requires correctness mode\n");
-        return -1;
-    }
-
-    if (!isfinite(opts->stability_sample_ms) || opts->stability_sample_ms <= 0.0) {
-        fprintf(stderr, "error: --stability-sample-ms must be > 0\n");
-        return -1;
-    }
-
-    if (thr->warning_throughput_cv_percent < thr->stable_throughput_cv_percent ||
-        thr->warning_cycles_cv_percent < thr->stable_cycles_cv_percent ||
-        thr->warning_time_cv_percent < thr->stable_time_cv_percent ||
-        thr->warning_memory_growth_percent < thr->stable_memory_growth_percent ||
-        thr->warning_error_rate_percent < thr->stable_error_rate_percent) {
-        fprintf(stderr, "error: warning thresholds must be >= stable thresholds\n");
         return -1;
     }
 

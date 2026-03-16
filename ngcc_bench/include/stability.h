@@ -74,12 +74,6 @@ typedef struct {
     double stable_time_cv_percent;
     double stable_memory_growth_percent;
     double stable_error_rate_percent;
-
-    double warning_throughput_cv_percent;
-    double warning_cycles_cv_percent;
-    double warning_time_cv_percent;
-    double warning_memory_growth_percent;
-    double warning_error_rate_percent;
 } ngcc_stability_thresholds_t;
 
 typedef int (*ngcc_correctness_dispatch_fn)(const ngcc_api_t *api,

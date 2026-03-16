@@ -200,54 +200,6 @@ int run_interactive_setup(cli_options_t *opts,
         if (prompt_optional_u64("Stability max cases", opts->stability_max_cases, &opts->stability_max_cases) != 0) {
             return -1;
         }
-
-        d_tmp = opts->stability_sample_ms;
-        if (prompt_optional_double("Stability sample window ms", d_tmp, &d_tmp) != 0) {
-            return -1;
-        }
-        opts->stability_sample_ms = d_tmp;
-
-        printf("\nStability thresholds (percent, press Enter to keep default):\n");
-        if (prompt_optional_nonnegative_double("  stable throughput cv", opts->stability_thresholds.stable_throughput_cv_percent,
-                                               &opts->stability_thresholds.stable_throughput_cv_percent) != 0) {
-            return -1;
-        }
-        if (prompt_optional_nonnegative_double("  stable cycles cv", opts->stability_thresholds.stable_cycles_cv_percent,
-                                               &opts->stability_thresholds.stable_cycles_cv_percent) != 0) {
-            return -1;
-        }
-        if (prompt_optional_nonnegative_double("  stable time cv", opts->stability_thresholds.stable_time_cv_percent,
-                                               &opts->stability_thresholds.stable_time_cv_percent) != 0) {
-            return -1;
-        }
-        if (prompt_optional_nonnegative_double("  stable memory growth", opts->stability_thresholds.stable_memory_growth_percent,
-                                               &opts->stability_thresholds.stable_memory_growth_percent) != 0) {
-            return -1;
-        }
-        if (prompt_optional_nonnegative_double("  stable error rate", opts->stability_thresholds.stable_error_rate_percent,
-                                               &opts->stability_thresholds.stable_error_rate_percent) != 0) {
-            return -1;
-        }
-        if (prompt_optional_nonnegative_double("  warning throughput cv", opts->stability_thresholds.warning_throughput_cv_percent,
-                                               &opts->stability_thresholds.warning_throughput_cv_percent) != 0) {
-            return -1;
-        }
-        if (prompt_optional_nonnegative_double("  warning cycles cv", opts->stability_thresholds.warning_cycles_cv_percent,
-                                               &opts->stability_thresholds.warning_cycles_cv_percent) != 0) {
-            return -1;
-        }
-        if (prompt_optional_nonnegative_double("  warning time cv", opts->stability_thresholds.warning_time_cv_percent,
-                                               &opts->stability_thresholds.warning_time_cv_percent) != 0) {
-            return -1;
-        }
-        if (prompt_optional_nonnegative_double("  warning memory growth", opts->stability_thresholds.warning_memory_growth_percent,
-                                               &opts->stability_thresholds.warning_memory_growth_percent) != 0) {
-            return -1;
-        }
-        if (prompt_optional_nonnegative_double("  warning error rate", opts->stability_thresholds.warning_error_rate_percent,
-                                               &opts->stability_thresholds.warning_error_rate_percent) != 0) {
-            return -1;
-        }
     }
 
 
