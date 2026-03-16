@@ -64,12 +64,6 @@ void ngcc_stability_thresholds_set_defaults(ngcc_stability_thresholds_t *out_thr
     out_thresholds->stable_time_cv_percent = 5.0;
     out_thresholds->stable_memory_growth_percent = 1.0;
     out_thresholds->stable_error_rate_percent = 0.0;
-
-    out_thresholds->warning_throughput_cv_percent = 10.0;
-    out_thresholds->warning_cycles_cv_percent = 10.0;
-    out_thresholds->warning_time_cv_percent = 10.0;
-    out_thresholds->warning_memory_growth_percent = 5.0;
-    out_thresholds->warning_error_rate_percent = 1.0;
 }
 
 int ngcc_run_stability(const ngcc_api_t *api,
@@ -340,13 +334,6 @@ int ngcc_run_stability(const ngcc_api_t *api,
 
     if (out_result->is_stable) {
         strcpy(out_result->status, "STABLE");
-    } else if (out_result->throughput_cv_percent < effective_thresholds.warning_throughput_cv_percent &&
-               out_result->time_cv_percent < effective_thresholds.warning_time_cv_percent &&
-               (!out_result->cycles_available ||
-                out_result->cycles_cv_percent < effective_thresholds.warning_cycles_cv_percent) &&
-               fabs(out_result->memory_growth_percent) < effective_thresholds.warning_memory_growth_percent &&
-               out_result->error_rate_percent <= effective_thresholds.warning_error_rate_percent) {
-        strcpy(out_result->status, "WARNING");
     } else {
         strcpy(out_result->status, "UNSTABLE");
     }
