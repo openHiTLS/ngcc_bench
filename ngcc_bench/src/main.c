@@ -200,7 +200,7 @@ static int run_correctness_for_test(const ngcc_api_t *api,
 }
 
 static void print_perf_result(const char *prefix, size_t msg_len,
-                              const ngcc_perf_result_t *result) {
+                              const ngcc_perf_result_t *result, int is_hash) {
     printf("[%s][performance][%zuB] ops=%llu warmup=%llu elapsed_ms=%.3f bytes/op=%.3f\n",
            prefix, msg_len,
            result->iterations,
@@ -208,22 +208,42 @@ static void print_perf_result(const char *prefix, size_t msg_len,
            result->elapsed_ms,
            result->bytes_per_op);
     if (result->cycles_available) {
-        printf("[%s][performance][%zuB][cycles] min=%.3f mean=%.3f median=%.3f max=%.3f stddev=%.3f cv=%.3f%% per_byte=%.3f\n",
-               prefix, msg_len,
-               result->cycles_min,
-               result->cycles_per_op,
-               result->cycles_median,
-               result->cycles_max,
-               result->cycles_stddev,
-               result->cycles_cv_percent,
-               result->cycles_per_byte);
+        if (is_hash) {
+            /* Hash: report cycles per byte */
+            printf("[%s][performance][%zuB][cycles] min=%.3f mean=%.3f median=%.3f max=%.3f stddev=%.3f cv=%.3f%% per_byte=%.3f\n",
+                   prefix, msg_len,
+                   result->cycles_min,
+                   result->cycles_per_op,
+                   result->cycles_median,
+                   result->cycles_max,
+                   result->cycles_stddev,
+                   result->cycles_cv_percent,
+                   result->cycles_per_byte);
+        } else {
+            /* Pubkey: report cycles per op */
+            printf("[%s][performance][%zuB][cycles] min=%.3f mean=%.3f median=%.3f max=%.3f stddev=%.3f cv=%.3f%%\n",
+                   prefix, msg_len,
+                   result->cycles_min,
+                   result->cycles_per_op,
+                   result->cycles_median,
+                   result->cycles_max,
+                   result->cycles_stddev,
+                   result->cycles_cv_percent);
+        }
     } else {
         printf("[%s][performance][%zuB][cycles] unavailable\n", prefix, msg_len);
     }
-    printf("[%s][performance][%zuB][throughput] ops/s=%.3f bytes/s=%.3f\n",
-           prefix, msg_len,
-           result->ops_per_sec,
-           result->bytes_per_sec);
+    if (is_hash) {
+        /* Hash: byte throughput (bytes/s) */
+        printf("[%s][performance][%zuB][throughput] bytes/s=%.3f\n",
+               prefix, msg_len,
+               result->bytes_per_sec);
+    } else {
+        /* Pubkey: operation throughput (ops/s) */
+        printf("[%s][performance][%zuB][throughput] ops/s=%.3f\n",
+               prefix, msg_len,
+               result->ops_per_sec);
+    }
     printf("[%s][performance][%zuB][time] mean_ms=%.6f median_ms=%.6f stddev_ms=%.6f cv=%.3f%%\n",
            prefix, msg_len,
            result->time_ms_mean,
@@ -237,7 +257,7 @@ static int run_sig_sub_performance(const ngcc_api_t *api,
     ngcc_perf_result_t result;
     int any_fail = 0;
     int rc;
-    size_t mi;
+    static const size_t sig_msg_len = 64;
 
     /* keygen: no msg_len dependency, run once */
     rc = ngcc_sig_keygen_performance(api, cfg, &result);
@@ -245,31 +265,25 @@ static int run_sig_sub_performance(const ngcc_api_t *api,
         printf("[sig][keygen][performance] FAIL\n");
         any_fail = 1;
     } else {
-        print_perf_result("sig][keygen", 0, &result);
+        print_perf_result("sig][keygen", 0, &result, 0);
     }
 
-    /* sign: depends on msg_len */
-    for (mi = 0; mi < NGCC_NUM_MSG_LENS; ++mi) {
-        size_t msg_len = k_msg_lens[mi];
-        rc = ngcc_sig_sign_performance(api, msg_len, cfg, &result);
-        if (rc != 0) {
-            printf("[sig][sign][performance][%zuB] FAIL\n", msg_len);
-            any_fail = 1;
-            continue;
-        }
-        print_perf_result("sig][sign", msg_len, &result);
+    /* sign: fixed 64-byte message */
+    rc = ngcc_sig_sign_performance(api, sig_msg_len, cfg, &result);
+    if (rc != 0) {
+        printf("[sig][sign][performance][%zuB] FAIL\n", sig_msg_len);
+        any_fail = 1;
+    } else {
+        print_perf_result("sig][sign", sig_msg_len, &result, 0);
     }
 
-    /* verify: depends on msg_len */
-    for (mi = 0; mi < NGCC_NUM_MSG_LENS; ++mi) {
-        size_t msg_len = k_msg_lens[mi];
-        rc = ngcc_sig_verify_performance(api, msg_len, cfg, &result);
-        if (rc != 0) {
-            printf("[sig][verify][performance][%zuB] FAIL\n", msg_len);
-            any_fail = 1;
-            continue;
-        }
-        print_perf_result("sig][verify", msg_len, &result);
+    /* verify: fixed 64-byte message */
+    rc = ngcc_sig_verify_performance(api, sig_msg_len, cfg, &result);
+    if (rc != 0) {
+        printf("[sig][verify][performance][%zuB] FAIL\n", sig_msg_len);
+        any_fail = 1;
+    } else {
+        print_perf_result("sig][verify", sig_msg_len, &result, 0);
     }
 
     return any_fail ? -1 : 0;
@@ -296,7 +310,7 @@ static int run_kem_sub_performance(const ngcc_api_t *api,
             any_fail = 1;
             continue;
         }
-        print_perf_result(sub_names[si], 0, &result);
+        print_perf_result(sub_names[si], 0, &result, 0);
     }
     return any_fail ? -1 : 0;
 }
@@ -309,8 +323,8 @@ static int run_kex_sub_performance(const ngcc_api_t *api,
         printf("[kex][performance] FAIL\n");
         return -1;
     }
-    print_perf_result("kex][derive_ss_a", 0, &result_a);
-    print_perf_result("kex][derive_ss_b", 0, &result_b);
+    print_perf_result("kex][derive_ss_a", 0, &result_a, 0);
+    print_perf_result("kex][derive_ss_b", 0, &result_b, 0);
     return 0;
 }
 
@@ -370,7 +384,7 @@ static int run_performance_for_test(const ngcc_api_t *api,
             continue;
         }
 
-        print_perf_result(test->name, msg_len, &result);
+        print_perf_result(test->name, msg_len, &result, 1);
 
         if (report != NULL) {
             report->performance[mi] = result;

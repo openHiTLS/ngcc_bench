@@ -20,7 +20,7 @@
 #define NGCC_PERF_ITERATIONS 10000
 #define NGCC_STABILITY_MSG_LEN 131072
 
-static const size_t k_msg_lens[] = {1024, 4096, 131072, 1048576};
+static const size_t k_msg_lens[] = {32, 128, 512, 1024, 4096, 8192, 16384, 65536};
 #define NGCC_NUM_MSG_LENS (sizeof(k_msg_lens) / sizeof(k_msg_lens[0]))
 
 /* ── Mode mask ─────────────────────────────────────────────────── */
