@@ -123,10 +123,10 @@ static int alloc_sig_ctx(const ngcc_api_t *api, size_t msg_len, sig_ctx_t *out_c
         return -1;
     }
 
-    out_ctx->pk = (unsigned char *) malloc((size_t) out_ctx->pk_cap);
-    out_ctx->sk = (unsigned char *) malloc((size_t) out_ctx->sk_cap);
-    out_ctx->sn = (unsigned char *) malloc((size_t) out_ctx->sn_cap);
-    out_ctx->msg = (unsigned char *) malloc(msg_len);
+    out_ctx->pk = (unsigned char *) calloc(1, (size_t) out_ctx->pk_cap);
+    out_ctx->sk = (unsigned char *) calloc(1, (size_t) out_ctx->sk_cap);
+    out_ctx->sn = (unsigned char *) calloc(1, (size_t) out_ctx->sn_cap);
+    out_ctx->msg = (unsigned char *) calloc(1, msg_len);
     if (out_ctx->pk == NULL || out_ctx->sk == NULL || out_ctx->sn == NULL || out_ctx->msg == NULL) {
         free(out_ctx->pk);
         free(out_ctx->sk);
@@ -403,8 +403,8 @@ int ngcc_sig_keygen_performance(const ngcc_api_t *api,
         return -1;
     }
 
-    ctx.pk = (unsigned char *) malloc((size_t) ctx.pk_cap);
-    ctx.sk = (unsigned char *) malloc((size_t) ctx.sk_cap);
+    ctx.pk = (unsigned char *) calloc(1, (size_t) ctx.pk_cap);
+    ctx.sk = (unsigned char *) calloc(1, (size_t) ctx.sk_cap);
     if (ctx.pk == NULL || ctx.sk == NULL) {
         goto out;
     }

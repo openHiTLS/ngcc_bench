@@ -106,11 +106,11 @@ int ngcc_kem_correctness(const ngcc_api_t *api) {
         return -1;
     }
 
-    pk = (unsigned char *) malloc((size_t) pk_cap);
-    sk = (unsigned char *) malloc((size_t) sk_cap);
-    ct = (unsigned char *) malloc((size_t) ct_cap);
-    ss_a = (unsigned char *) malloc((size_t) ss_cap);
-    ss_b = (unsigned char *) malloc((size_t) ss_cap);
+    pk = (unsigned char *) calloc(1, (size_t) pk_cap);
+    sk = (unsigned char *) calloc(1, (size_t) sk_cap);
+    ct = (unsigned char *) calloc(1, (size_t) ct_cap);
+    ss_a = (unsigned char *) calloc(1, (size_t) ss_cap);
+    ss_b = (unsigned char *) calloc(1, (size_t) ss_cap);
     if (pk == NULL || sk == NULL || ct == NULL || ss_a == NULL || ss_b == NULL) {
         goto out;
     }
@@ -187,7 +187,7 @@ static int verify_kem_kat_vectors(const ngcc_api_t *api,
         return -1;
     }
 
-    ss_out = (unsigned char *) malloc((size_t) ss_cap);
+    ss_out = (unsigned char *) calloc(1, (size_t) ss_cap);
     if (ss_out == NULL) {
         return -1;
     }
@@ -356,11 +356,11 @@ int ngcc_kem_performance(const ngcc_api_t *api,
         return -1;
     }
 
-    ctx.pk = (unsigned char *) malloc((size_t) ctx.pk_cap);
-    ctx.sk = (unsigned char *) malloc((size_t) ctx.sk_cap);
-    ctx.ct = (unsigned char *) malloc((size_t) ctx.ct_cap);
-    ctx.ss_a = (unsigned char *) malloc((size_t) ctx.ss_cap);
-    ctx.ss_b = (unsigned char *) malloc((size_t) ctx.ss_cap);
+    ctx.pk = (unsigned char *) calloc(1, (size_t) ctx.pk_cap);
+    ctx.sk = (unsigned char *) calloc(1, (size_t) ctx.sk_cap);
+    ctx.ct = (unsigned char *) calloc(1, (size_t) ctx.ct_cap);
+    ctx.ss_a = (unsigned char *) calloc(1, (size_t) ctx.ss_cap);
+    ctx.ss_b = (unsigned char *) calloc(1, (size_t) ctx.ss_cap);
     if (ctx.pk == NULL || ctx.sk == NULL || ctx.ct == NULL || ctx.ss_a == NULL || ctx.ss_b == NULL) {
         goto cleanup;
     }
@@ -415,8 +415,8 @@ int ngcc_kem_keygen_performance(const ngcc_api_t *api,
         return -1;
     }
 
-    ctx.pk = (unsigned char *) malloc((size_t) ctx.pk_cap);
-    ctx.sk = (unsigned char *) malloc((size_t) ctx.sk_cap);
+    ctx.pk = (unsigned char *) calloc(1, (size_t) ctx.pk_cap);
+    ctx.sk = (unsigned char *) calloc(1, (size_t) ctx.sk_cap);
     if (ctx.pk == NULL || ctx.sk == NULL) {
         goto cleanup_keygen;
     }
@@ -479,10 +479,10 @@ int ngcc_kem_encap_performance(const ngcc_api_t *api,
         return -1;
     }
 
-    ctx.pk = (unsigned char *) malloc((size_t) pk_cap);
-    sk = (unsigned char *) malloc((size_t) sk_cap);
-    ctx.ct = (unsigned char *) malloc((size_t) ctx.ct_cap);
-    ctx.ss = (unsigned char *) malloc((size_t) ctx.ss_cap);
+    ctx.pk = (unsigned char *) calloc(1, (size_t) pk_cap);
+    sk = (unsigned char *) calloc(1, (size_t) sk_cap);
+    ctx.ct = (unsigned char *) calloc(1, (size_t) ctx.ct_cap);
+    ctx.ss = (unsigned char *) calloc(1, (size_t) ctx.ss_cap);
     if (ctx.pk == NULL || sk == NULL || ctx.ct == NULL || ctx.ss == NULL) {
         goto cleanup_encap;
     }
@@ -559,11 +559,11 @@ int ngcc_kem_decap_performance(const ngcc_api_t *api,
         return -1;
     }
 
-    pk = (unsigned char *) malloc((size_t) pk_cap);
-    ctx.sk = (unsigned char *) malloc((size_t) sk_cap);
-    ctx.ct = (unsigned char *) malloc((size_t) ct_cap);
-    ctx.ss = (unsigned char *) malloc((size_t) ss_cap);
-    ss_enc = (unsigned char *) malloc((size_t) ss_cap);
+    pk = (unsigned char *) calloc(1, (size_t) pk_cap);
+    ctx.sk = (unsigned char *) calloc(1, (size_t) sk_cap);
+    ctx.ct = (unsigned char *) calloc(1, (size_t) ct_cap);
+    ctx.ss = (unsigned char *) calloc(1, (size_t) ss_cap);
+    ss_enc = (unsigned char *) calloc(1, (size_t) ss_cap);
     if (pk == NULL || ctx.sk == NULL || ctx.ct == NULL || ctx.ss == NULL || ss_enc == NULL) {
         goto cleanup_decap;
     }
