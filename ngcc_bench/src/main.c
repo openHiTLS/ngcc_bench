@@ -290,6 +290,7 @@ static int run_sig_sub_performance(const ngcc_api_t *api,
         if (report != NULL) {
             report->performance[idx] = result;
             report->performance_labels[idx] = "\u5bc6\u94a5\u751f\u6210";
+            report->performance_labels_en[idx] = "keygen";
             idx++;
         }
     }
@@ -304,6 +305,7 @@ static int run_sig_sub_performance(const ngcc_api_t *api,
         if (report != NULL) {
             report->performance[idx] = result;
             report->performance_labels[idx] = "\u7b7e\u540d";
+            report->performance_labels_en[idx] = "sign";
             idx++;
         }
     }
@@ -318,6 +320,7 @@ static int run_sig_sub_performance(const ngcc_api_t *api,
         if (report != NULL) {
             report->performance[idx] = result;
             report->performance_labels[idx] = "\u9a8c\u7b7e";
+            report->performance_labels_en[idx] = "verify";
             idx++;
         }
     }
@@ -333,6 +336,7 @@ static int run_kem_sub_performance(const ngcc_api_t *api,
                                    test_report_t *report) {
     static const char *const sub_names[] = {"kem][keygen", "kem][encap", "kem][decap"};
     static const char *const labels[] = {"\u5bc6\u94a5\u751f\u6210", "\u5c01\u88c5", "\u89e3\u5c01\u88c5"};
+    static const char *const labels_en[] = {"keygen", "encap", "decap"};
     ngcc_perf_result_t result;
     int any_fail = 0;
     int idx = 0;
@@ -380,8 +384,10 @@ static int run_kex_sub_performance(const ngcc_api_t *api,
     if (report != NULL) {
         report->performance[0] = result_a;
         report->performance_labels[0] = "\u5bc6\u94a5\u534f\u5546A";
+        report->performance_labels_en[0] = "kex_derive_a";
         report->performance[1] = result_b;
         report->performance_labels[1] = "\u5bc6\u94a5\u534f\u5546B";
+        report->performance_labels_en[1] = "kex_derive_b";
         report->performance_count = 2;
     }
     return 0;
