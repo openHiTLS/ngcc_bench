@@ -173,16 +173,16 @@ int ngcc_kex_correctness(const ngcc_api_t *api) {
         return -1;
     }
 
-    pka = (unsigned char *) malloc((size_t) pk_cap);
-    ska = (unsigned char *) malloc((size_t) sk_cap);
-    sta = (unsigned char *) malloc((size_t) sta_cap);
-    pkb = (unsigned char *) malloc((size_t) pk_cap);
-    skb = (unsigned char *) malloc((size_t) sk_cap);
-    stb = (unsigned char *) malloc((size_t) stb_cap);
-    msg_buf[0] = (unsigned char *) malloc((size_t) msg_cap);
-    msg_buf[1] = (unsigned char *) malloc((size_t) msg_cap);
-    ssa = (unsigned char *) malloc((size_t) ss_cap);
-    ssb = (unsigned char *) malloc((size_t) ss_cap);
+    pka = (unsigned char *) calloc(1, (size_t) pk_cap);
+    ska = (unsigned char *) calloc(1, (size_t) sk_cap);
+    sta = (unsigned char *) calloc(1, (size_t) sta_cap);
+    pkb = (unsigned char *) calloc(1, (size_t) pk_cap);
+    skb = (unsigned char *) calloc(1, (size_t) sk_cap);
+    stb = (unsigned char *) calloc(1, (size_t) stb_cap);
+    msg_buf[0] = (unsigned char *) calloc(1, (size_t) msg_cap);
+    msg_buf[1] = (unsigned char *) calloc(1, (size_t) msg_cap);
+    ssa = (unsigned char *) calloc(1, (size_t) ss_cap);
+    ssb = (unsigned char *) calloc(1, (size_t) ss_cap);
 
     if (pka == NULL || ska == NULL || sta == NULL || pkb == NULL || skb == NULL || stb == NULL ||
         msg_buf[0] == NULL || msg_buf[1] == NULL || ssa == NULL || ssb == NULL) {
@@ -295,7 +295,7 @@ static int verify_kex_kat_vectors(const ngcc_api_t *api,
         return -1;
     }
 
-    ss_out = (unsigned char *) malloc((size_t) ss_cap);
+    ss_out = (unsigned char *) calloc(1, (size_t) ss_cap);
     if (ss_out == NULL) {
         return -1;
     }
@@ -659,16 +659,16 @@ int ngcc_kex_derive_ss_performance(const ngcc_api_t *api,
         return -1;
     }
 
-    pka = (unsigned char *) malloc((size_t) pk_cap);
-    ska = (unsigned char *) malloc((size_t) sk_cap);
-    sta = (unsigned char *) malloc((size_t) sta_cap);
-    pkb = (unsigned char *) malloc((size_t) pk_cap);
-    skb = (unsigned char *) malloc((size_t) sk_cap);
-    stb = (unsigned char *) malloc((size_t) stb_cap);
-    msg_buf[0] = (unsigned char *) malloc((size_t) msg_cap);
-    msg_buf[1] = (unsigned char *) malloc((size_t) msg_cap);
-    ssa = (unsigned char *) malloc((size_t) ss_cap);
-    ssb = (unsigned char *) malloc((size_t) ss_cap);
+    pka = (unsigned char *) calloc(1, (size_t) pk_cap);
+    ska = (unsigned char *) calloc(1, (size_t) sk_cap);
+    sta = (unsigned char *) calloc(1, (size_t) sta_cap);
+    pkb = (unsigned char *) calloc(1, (size_t) pk_cap);
+    skb = (unsigned char *) calloc(1, (size_t) sk_cap);
+    stb = (unsigned char *) calloc(1, (size_t) stb_cap);
+    msg_buf[0] = (unsigned char *) calloc(1, (size_t) msg_cap);
+    msg_buf[1] = (unsigned char *) calloc(1, (size_t) msg_cap);
+    ssa = (unsigned char *) calloc(1, (size_t) ss_cap);
+    ssb = (unsigned char *) calloc(1, (size_t) ss_cap);
     if (pka == NULL || ska == NULL || sta == NULL || pkb == NULL || skb == NULL ||
         stb == NULL || msg_buf[0] == NULL || msg_buf[1] == NULL || ssa == NULL || ssb == NULL) {
         goto cleanup;

@@ -62,9 +62,9 @@ int ngcc_hash_correctness(const ngcc_api_t *api, int digest_len_bits, size_t msg
         return -1;
     }
 
-    msg = (unsigned char *) malloc(msg_len);
-    digest_a = (unsigned char *) malloc(digest_len);
-    digest_b = (unsigned char *) malloc(digest_len);
+    msg = (unsigned char *) calloc(1, msg_len);
+    digest_a = (unsigned char *) calloc(1, digest_len);
+    digest_b = (unsigned char *) calloc(1, digest_len);
     if (msg == NULL || digest_a == NULL || digest_b == NULL) {
         goto out;
     }
@@ -129,7 +129,7 @@ static int verify_kat_vectors(const ngcc_api_t *api,
         return -1;
     }
 
-    digest = (unsigned char *) malloc(digest_len);
+    digest = (unsigned char *) calloc(1, digest_len);
     if (digest == NULL) {
         return -1;
     }
@@ -339,9 +339,9 @@ static int verify_kat_loop(const ngcc_api_t *api,
         return -1;
     }
 
-    msg = (unsigned char *) malloc(msg_bytes);
-    digest = (unsigned char *) malloc(digest_len);
-    buffer = (unsigned char *) malloc(digest_len);
+    msg = (unsigned char *) calloc(1, msg_bytes);
+    digest = (unsigned char *) calloc(1, digest_len);
+    buffer = (unsigned char *) calloc(1, digest_len);
     if (msg == NULL || digest == NULL || buffer == NULL) {
         goto out;
     }
@@ -554,8 +554,8 @@ int ngcc_hash_performance(const ngcc_api_t *api,
         return -1;
     }
 
-    ctx.msg = (unsigned char *) malloc(ctx.msg_len);
-    ctx.digest = (unsigned char *) malloc(ctx.digest_len);
+    ctx.msg = (unsigned char *) calloc(1, ctx.msg_len);
+    ctx.digest = (unsigned char *) calloc(1, ctx.digest_len);
     if (ctx.msg == NULL || ctx.digest == NULL) {
         free(ctx.msg);
         free(ctx.digest);
