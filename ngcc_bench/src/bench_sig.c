@@ -318,9 +318,7 @@ int ngcc_sig_verify_correctness_kat_file(const ngcc_api_t *api,
         }
 
         if (strncmp(entry->d_name, "KAT_SIG_", 8) != 0) {
-            fprintf(stderr, "[sig][kat] error: unrecognized KAT file: %s\n", entry->d_name);
-            closedir(dir);
-            goto done;
+            continue;  /* skip files not matching KAT_SIG_ prefix */
         }
 
         memset(&kat, 0, sizeof(kat));

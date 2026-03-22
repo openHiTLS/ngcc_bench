@@ -551,9 +551,7 @@ int ngcc_kex_correctness_kat_file(const ngcc_api_t *api,
         }
 
         if (strncmp(entry->d_name, "KAT_KEX_", 8) != 0) {
-            fprintf(stderr, "[kex][kat] error: unrecognized KAT file: %s\n", entry->d_name);
-            closedir(dir);
-            goto done;
+            continue;  /* skip files not matching KAT_KEX_ prefix */
         }
 
         memset(&kat, 0, sizeof(kat));
