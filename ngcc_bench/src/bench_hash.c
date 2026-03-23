@@ -441,6 +441,7 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
     unsigned long long passed_count = 0;
     unsigned long long failed_count = 0;
     int file_count = 0;
+    int found_types[4] = {0, 0, 0, 0};  /* KAT_2_12, KAT_2_23, KAT_2_33, KAT_Loop */
     int rc = -1;
 
     if (api == NULL || digest_len_bits <= 0 || kat_path == NULL) {
@@ -479,10 +480,7 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
 
         ftype = classify_kat_file(entry->d_name);
         if (ftype == KAT_TYPE_UNKNOWN) {
-            fprintf(stderr, "[hash][kat] error: unrecognized KAT file format: %s\n", entry->d_name);
-            closedir(dir);
-            rc = -1;
-            goto done;
+            continue;  /* skip files not matching any known KAT prefix */
         }
 
         memset(&kat, 0, sizeof(kat));
@@ -494,6 +492,9 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
         }
 
         file_count++;
+        if (ftype < 4) {
+            found_types[ftype] = 1;
+        }
         printf("[hash][kat] testing %s (%s, %zu vectors) ...\n",
                entry->d_name, kat_type_name(ftype), kat.count);
 
@@ -515,6 +516,20 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
         fprintf(stderr, "[hash][kat] error: no KAT files found in directory: %s\n", kat_path);
         rc = -1;
         goto done;
+    }
+
+    /* Verify all required KAT file types were found */
+    {
+        static const kat_file_type_t required[] = {KAT_TYPE_2_12, KAT_TYPE_2_23, KAT_TYPE_2_33, KAT_TYPE_LOOP};
+        size_t ri;
+        for (ri = 0; ri < sizeof(required) / sizeof(required[0]); ++ri) {
+            if (!found_types[required[ri]]) {
+                fprintf(stderr, "[hash][kat] error: missing required KAT type: %s\n",
+                        kat_type_name(required[ri]));
+                rc = -1;
+                goto done;
+            }
+        }
     }
 
     rc = (total > 0 && failed_count == 0) ? 0 : -1;

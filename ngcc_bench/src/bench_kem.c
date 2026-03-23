@@ -292,9 +292,7 @@ int ngcc_kem_correctness_kat_file(const ngcc_api_t *api,
         }
 
         if (strncmp(entry->d_name, "KAT_KEM_", 8) != 0) {
-            fprintf(stderr, "[kem][kat] error: unrecognized KAT file: %s\n", entry->d_name);
-            closedir(dir);
-            goto done;
+            continue;  /* skip files not matching KAT_KEM_ prefix */
         }
 
         memset(&kat, 0, sizeof(kat));
