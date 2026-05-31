@@ -205,7 +205,7 @@ int run_interactive_setup(cli_options_t *opts,
 
 
     if (correctness_selected) {
-        if (prompt_read_line("Optional KAT file (blank to skip): ", kat_buf, kat_buf_len) != 0) {
+        if (prompt_read_line("Optional KAT directory (blank to skip): ", kat_buf, kat_buf_len) != 0) {
             return -1;
         }
         if (kat_buf[0] != '\0') {

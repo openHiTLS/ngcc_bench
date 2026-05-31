@@ -22,7 +22,7 @@ void print_usage(const char *prog) {
     printf("  %s --lib /path/to/lib.so --test hash|sig|kem|kex|all --mode correctness|performance|memory|stability|all\n", prog);
     printf("     [--digest-len-bits BITS]\n");
     printf("     [--duration-hours H] [--stability-max-cases N]\n");
-    printf("     [--json-out PATH] [--kat FILE]\n");
+    printf("     [--json-out PATH] [--kat DIR]\n");
     printf("\n");
     printf("  %s\n", prog);
     printf("     Launch interactive menu mode.\n");
