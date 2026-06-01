@@ -1,114 +1,169 @@
 # ngcc_bench
 
-基于 C11 的跨平台 NGCC 算法测试基准工具（Linux / macOS）。程序通过 `dlopen/dlsym` 动态加载被测 `.so`，统一执行 `correctness`、`performance`、`memory`、`stability` 四类测试。
+[Chinese](README-zh.md)
 
-## 测试目标
+A cross-platform NGCC algorithm benchmarking tool written in C11 for Linux and
+macOS. It loads the target dynamic library through `dlopen` / `dlsym` and runs
+correctness, performance, memory, and stability tests.
 
-- 测试目标：`hash`、`sig`、`kem`、`kex`
+## Test Targets
 
-说明：
-- `sig` 聚合执行 `keygen + sign + verify`；性能测试分别输出 keygen/sign/verify 指标。
-- `kem` 聚合执行 `keygen + encap + decap`；性能测试分别输出 keygen/encap/decap 指标。
-- `all` 包含所有四项：`hash`、`sig`、`kem`、`kex`。
+| Target | correctness | performance |
+| --- | --- | --- |
+| `hash` | Hash the same random message twice and compare the digests, or run KAT vectors | Report throughput and timing for each fixed message length |
+| `sig` | Run `keygen + sign + verify`, or run verify KAT vectors | Report `keygen`, `sign`, and `verify` metrics separately |
+| `kem` | Run `keygen + encap + decap`, or run decap KAT vectors | Report `keygen`, `encap`, and `decap` metrics separately |
+| `kex` | Run the complete key-exchange flow, or run KAT vectors | Report `derive_ss_a` and `derive_ss_b` metrics separately |
+| `all` | Run all four algorithm categories | Run all four algorithm categories |
 
-## 构建
+Test modes:
 
-要求：
+- `correctness`
+- `performance`
+- `memory`
+- `stability`
+- `all`
+
+## Build
+
+Requirements:
+
 - CMake >= 3.16
-- GCC/Clang（C11）
-- `libdl`、`libm`
+- GCC or Clang with C11 support
+- On Linux, `libdl` and `libm`; static memory analysis also requires `size`
 
 ```bash
-cmake -S . -B build
-cmake --build build -j
+mkdir build
+cd build
+cmake ..
+make -j
 ```
 
-主程序：
+Main executable:
 
 ```bash
-./build/ngcc_bench
+./ngcc_bench
 ```
 
-若仓库内存在 `code/API_*/Implementations/*`，可选：
+The target dynamic library does not need to be configured while building
+`ngcc_bench`. Running `./ngcc_bench` directly starts interactive mode and
+prompts for the library path. For scripted execution, pass the path with
+`--lib PATH`. Both modes load the target library through `dlopen` / `dlsym`.
+
+## Quick Start
+
+Run without arguments to start interactive mode:
 
 ```bash
-cmake -S . -B build -DIMPL_TYPE=all
+./ngcc_bench
 ```
 
-## 快速开始
+The program prompts for the dynamic library path, test target, test mode, and
+any additional configuration required by the selected mode.
 
-查看帮助：
+Show help or version information:
 
 ```bash
-./build/ngcc_bench --help
+./ngcc_bench --help
+./ngcc_bench --version
 ```
 
-聚合 KEM correctness：
+The following non-interactive examples are suitable for scripts or CI.
+
+Run KEM correctness:
 
 ```bash
-./build/ngcc_bench --lib /path/to/libalgo.so --test kem --mode correctness
+./ngcc_bench \
+  --lib /path/to/libalgo.so \
+  --test kem \
+  --mode correctness
 ```
 
-SIG performance（子操作分别输出 keygen/sign/verify）：
+Run SIG performance:
 
 ```bash
-./build/ngcc_bench \
+./ngcc_bench \
   --lib /path/to/libalgo.so \
   --test sig \
   --mode performance
 ```
 
-包含 hash 的全量聚合测试：
+Run all tests and write JSON reports in both Chinese and English:
 
 ```bash
-./build/ngcc_bench \
+./ngcc_bench \
   --lib /path/to/libalgo.so \
   --test all \
   --mode all \
   --digest-len-bits 256 \
-  --json-out reports/full_report.json
+  --json-out full_report.json
 ```
 
-## 关键参数
+This command creates:
 
-- `--test hash|sig|kem|kex|all`
-- `--mode correctness|performance|memory|stability|all`
-- `--digest-len-bits BITS`：选中 `hash` 时必填
-- `--msg-len BYTES`：Hash/SIG 消息长度，默认 `1024`
-- `--iterations N`：performance 迭代次数，默认 `1000`
-- `--duration-hours H`：stability 最长时长，默认 `6.0`
-- `--stability-max-cases N`：stability 最大 case，默认 `3000`
-- `--stability-sample-ms MS`：stability 采样窗口，默认 `1.0`
-- `--cycles on|off`：是否尝试输出 cycles，默认 `on`
-- `--kat FILE`：仅 correctness 模式有效；支持 `hash`、`sig`、`kem`、`kex`
-- `--json-out PATH`：输出 JSON 报告
-
-## 输出与限制
-
-- `memory` 输出分为 `[memory][static]` 和 `[memory][dynamic]`
-- `stability` 输出 `STABLE` / `WARNING` / `UNSTABLE`，其中 `UNSTABLE` 会导致失败返回码
-- `sig`、`kem` 性能测试自动输出子操作指标（keygen/sign/verify, keygen/encap/decap）
-- 加载器按测试目标按需加载符号；未选中的算法符号可以不导出
-- `memory` 指标当前以 Linux 路径最完整；非 Linux 平台上部分字段可能返回 `unavailable` 或 `0`
-- KAT 解析支持 `#` / `;` / `//` 注释、`0x` 前缀和常见字段别名
-
-## 测试
-
-```bash
-ctest --test-dir build --output-on-failure
+```text
+full_report.json.zh
+full_report.json.en
 ```
 
-附加脚本：
+## CLI Options
 
-```bash
-./build/ngcc_cli_regression_test ./build/ngcc_bench ./build/tests/mock/libmock_ngcc.so ./build/tests/mock/libmock_hash_only.so
-./build/ngcc_stability_profile --benchmark ./build/ngcc_bench --profile quick
-python3 tests/validate_json_report.py report.json docs/json_schema_v4.json
-```
+| Option | Description | Default |
+| --- | --- | --- |
+| `--lib PATH` | Path to the target dynamic library; required only in non-interactive mode | Prompted in interactive mode |
+| `--test hash\|sig\|kem\|kex\|all` | Test target | `all` |
+| `--mode correctness\|performance\|memory\|stability\|all` | Test mode | `all` |
+| `--digest-len-bits BITS` | Hash digest length in bits; required when `hash` is selected | None |
+| `--duration-hours H` | Maximum stability-test duration; must be greater than `0` | `6.0` |
+| `--stability-max-cases N` | Maximum number of stability-test cases; must be greater than `0` | `3000` |
+| `--kat DIR` | KAT vector directory; only available when `correctness` is included | None |
+| `--json-out PATH` | JSON output prefix; writes `PATH.zh` and `PATH.en` | None |
+| `--help` | Show help | - |
+| `--version` | Show version information | - |
 
-## 文档
+The following settings cannot be changed through the CLI:
 
-- CLI 说明：`docs/cli.md`
-- JSON schema：`docs/json_schema.md`、`docs/json_schema_v4.json`
-- 架构说明：`docs/architecture.md`
-- 动态库契约：`docs/library_contract.md`
+- Performance iterations: `10000`
+- Hash performance message lengths: `32`, `128`, `512`, `1024`, `4096`,
+  `8192`, `16384`, and `65536` bytes
+- Stability-test message length: `131072` bytes
+- Stability-test sampling window: `1.0` millisecond
+- Stability tests attempt to collect cycles; unsupported platforms report
+  `unavailable`
+- Stability thresholds: throughput CV `< 5%`, timing CV `< 5%`, cycles CV
+  `< 5%`, absolute memory growth `< 1%`, and error rate `<= 0%`
+
+## KAT Directories
+
+`--kat` accepts a directory, not a single file. Files are selected by prefix
+for the requested test target:
+
+| Target | Filename prefix |
+| --- | --- |
+| `hash` | `KAT_2_12_`, `KAT_2_23_`, `KAT_2_33_`, and `KAT_Loop_`; all four are required |
+| `sig` | `KAT_SIG_` |
+| `kem` | `KAT_KEM_` |
+| `kex` | `KAT_KEX_` |
+
+KAT parsing supports `#`, `;`, and `//` comments, the `0x` prefix, and common
+field aliases.
+
+## Output and Limitations
+
+- Symbols are loaded on demand according to `--test`. A dynamic library only
+  needs to export the symbols for the selected algorithms.
+- `memory` prints one `[memory][static]` entry and one
+  `[<target>][memory][dynamic]` entry for each algorithm.
+- Memory metrics are most complete on Linux. Some fields return `unavailable`
+  or `0` on other platforms.
+- Stability tests print `STABLE` or `UNSTABLE`, and print `STOPPED` when
+  interrupted by `SIGINT` / `SIGTERM`.
+- The program returns a non-zero exit code for `UNSTABLE` results, test
+  failures, invalid arguments, or missing symbols.
+- `--json-out` writes JSON reports in both Chinese and English.
+
+## Dynamic Library Interface
+
+The target dynamic library must export the interface symbols required by the
+selected algorithms. See `ngcc_bench/include/ngcc_api.h` for the interface
+definitions.
