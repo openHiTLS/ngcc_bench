@@ -8,6 +8,14 @@
 #include <string.h>
 #include <unistd.h>
 
+#ifndef NGCC_TESTS_DIR
+#error "NGCC_TESTS_DIR must be defined by the build system"
+#endif
+
+#ifndef NGCC_DOCS_DIR
+#error "NGCC_DOCS_DIR must be defined by the build system"
+#endif
+
 #define CHECK(cond, fmt, ...)                                                     \
     do {                                                                          \
         if (!(cond)) {                                                            \
@@ -56,9 +64,9 @@ int main(int argc, char **argv) {
     char baseline_status_path[PATH_MAX];
     char candidate_status_path[PATH_MAX];
     char candidate_perf_path[PATH_MAX];
-    const char *validator_path = "../tests/validate_json_report.py";
-    const char *schema_path = "../docs/json_schema_v4.json";
-    const char *compare_script_path = "../tests/compare_stability_reports.py";
+    char validator_path[PATH_MAX];
+    char schema_path[PATH_MAX];
+    char compare_script_path[PATH_MAX];
     const char *kat_content =
         "# compatibility: empty msg, md alias, comments, metadata and 0x prefix\n"
         "COUNT = 0\n"
@@ -122,6 +130,21 @@ int main(int argc, char **argv) {
         "}\n";
 
     CHECK(argc == 4, "usage: test_cli_regression BENCH MOCK_NGCC MOCK_HASH_ONLY");
+    CHECK(snprintf(validator_path,
+                   sizeof(validator_path),
+                   "%s/validate_json_report.py",
+                   NGCC_TESTS_DIR) < (int) sizeof(validator_path),
+          "validator path too long");
+    CHECK(snprintf(schema_path,
+                   sizeof(schema_path),
+                   "%s/json_schema_v4.json",
+                   NGCC_DOCS_DIR) < (int) sizeof(schema_path),
+          "schema path too long");
+    CHECK(snprintf(compare_script_path,
+                   sizeof(compare_script_path),
+                   "%s/compare_stability_reports.py",
+                   NGCC_TESTS_DIR) < (int) sizeof(compare_script_path),
+          "compare script path too long");
     CHECK(test_make_temp_dir(tmp_dir) == 0, "failed to create temp dir");
 
     CHECK(snprintf(kat_path, sizeof(kat_path), "%s/vectors.kat", tmp_dir) < (int) sizeof(kat_path),
@@ -284,6 +307,30 @@ int main(int argc, char **argv) {
                              NULL,
                              NULL) == 0,
               "hash-only correctness regression failed");
+    }
+
+    {
+        char *const cmd[] = {
+            argv[1], "--lib", argv[3], "--test", "hash", "--mode", "correctness",
+            "--digest-len-bits", "536870913", NULL
+        };
+        CHECK(run_and_expect(cmd, 1,
+                             "invalid --digest-len-bits value",
+                             NULL,
+                             NULL) == 0,
+              "oversized digest length regression failed");
+    }
+
+    {
+        char *const cmd[] = {
+            argv[1], "--lib", argv[3], "--test", "hash", "--mode", "correctness",
+            "--digest-len-bits", "4294967297", NULL
+        };
+        CHECK(run_and_expect(cmd, 1,
+                             "invalid --digest-len-bits value",
+                             NULL,
+                             NULL) == 0,
+              "wrapped digest length regression failed");
     }
 
     {

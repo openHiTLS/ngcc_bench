@@ -71,8 +71,13 @@ static int load_kex_symbols(void *handle, ngcc_api_t *api) {
     }
 
     passes = api->kex_get_passes_num();
-    if (passes == 0 || passes > 20) {
-        fprintf(stderr, "[ERROR][loader] kex_get_passes_num returned invalid value: %llu\n", passes);
+    if (passes < NGCC_KEX_MIN_PASSES || passes > NGCC_KEX_MAX_PASSES) {
+        fprintf(stderr,
+                "[ERROR][loader] kex_get_passes_num returned invalid value: %llu "
+                "(expected %llu..%llu)\n",
+                passes,
+                NGCC_KEX_MIN_PASSES,
+                NGCC_KEX_MAX_PASSES);
         return -1;
     }
 

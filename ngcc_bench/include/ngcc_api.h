@@ -20,6 +20,9 @@ typedef int (*kex_pass_fn_t)(unsigned char *sk, unsigned long long sk_len,
                              unsigned char *st, unsigned long long *st_len,
                              unsigned char *m_out, unsigned long long *m_out_len);
 
+#define NGCC_KEX_MIN_PASSES 2ULL
+#define NGCC_KEX_MAX_PASSES 100ULL
+
 typedef struct {
     int (*CryptHash)(int digest_len_bits,
                      const unsigned char *msg,
@@ -68,7 +71,7 @@ typedef struct {
 
     unsigned long long kex_passes_num;   /* cached from kex_get_passes_num() */
     kex_pass1_fn_t kex_pass1_fn;         /* pass1 function (always A-side) */
-    kex_pass_fn_t *kex_pass_fns;         /* array[0..passes_num-2] for pass2..N via dlsym, NULL if passes_num==1 */
+    kex_pass_fn_t *kex_pass_fns;         /* array[0..passes_num-2] for pass2..N via dlsym */
 
     int (*kex_derive_ss_a)(unsigned char *ska, unsigned long long ska_len_bytes,
                            unsigned char *pkb, unsigned long long pkb_len_bytes,

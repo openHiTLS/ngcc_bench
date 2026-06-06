@@ -73,10 +73,12 @@ int ngcc_hash_correctness(const ngcc_api_t *api, int digest_len_bits, size_t msg
         goto out;
     }
 
+    memset(digest_a, 0xA5, digest_len);
     if (hash_run_once(api, digest_len_bits, msg, msg_len, digest_a, digest_len) != 0) {
         goto out;
     }
 
+    memset(digest_b, 0x5A, digest_len);
     if (hash_run_once(api, digest_len_bits, msg, msg_len, digest_b, digest_len) != 0) {
         goto out;
     }

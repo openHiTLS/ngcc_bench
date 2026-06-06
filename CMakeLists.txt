@@ -161,6 +161,11 @@ ngcc_add_test_support_program(ngcc_mock_mldsa_test tests/test_mock_mldsa.c)
 ngcc_add_test_support_program(ngcc_mock_mlkex_test tests/test_mock_mlkex.c)
 ngcc_add_test_support_program(ngcc_stability_profile tests/ngcc_stability_profile.c)
 
+target_compile_definitions(ngcc_cli_regression_test PRIVATE
+    NGCC_TESTS_DIR="${CMAKE_SOURCE_DIR}/tests"
+    NGCC_DOCS_DIR="${CMAKE_SOURCE_DIR}/docs"
+)
+
 target_compile_definitions(ngcc_stability_profile PRIVATE
     NGCC_DEFAULT_MOCK_LIB="$<TARGET_FILE:mock_ngcc>"
 )

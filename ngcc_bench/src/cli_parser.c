@@ -1,4 +1,6 @@
 #include <getopt.h>
+#include <errno.h>
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -63,8 +65,9 @@ int parse_int_value(const char *s, int *out) {
         return -1;
     }
 
+    errno = 0;
     v = strtol(s, &end, 10);
-    if (end == NULL || *end != '\0') {
+    if (errno == ERANGE || end == NULL || *end != '\0' || v < INT_MIN || v > INT_MAX) {
         return -1;
     }
 
@@ -95,6 +98,17 @@ static int parse_nonnegative_double_option(const char *opt_name, const char *opt
         return -1;
     }
     return 0;
+}
+
+static int is_valid_digest_len_bits(int digest_len_bits) {
+    unsigned long long digest_len;
+
+    if (digest_len_bits <= 0) {
+        return 0;
+    }
+
+    digest_len = ((unsigned long long) digest_len_bits + 7ULL) / 8ULL;
+    return ngcc_is_valid_len(digest_len);
 }
 
 int parse_test_mask(const char *s, unsigned int *out_mask) {
@@ -184,8 +198,12 @@ int parse_cli_options(int argc, char **argv, cli_options_t *opts) {
                 }
                 break;
             case 'b':
-                if (parse_int_value(optarg, &opts->digest_len_bits) != 0 || opts->digest_len_bits <= 0) {
-                    fprintf(stderr, "invalid --digest-len-bits value: %s\n", optarg);
+                if (parse_int_value(optarg, &opts->digest_len_bits) != 0 ||
+                    !is_valid_digest_len_bits(opts->digest_len_bits)) {
+                    fprintf(stderr,
+                            "invalid --digest-len-bits value: %s (max %llu bits)\n",
+                            optarg,
+                            NGCC_MAX_BUFFER_LEN * 8ULL);
                     return -1;
                 }
                 break;
@@ -236,9 +254,17 @@ int validate_options(const cli_options_t *opts) {
         return -1;
     }
 
-    if ((opts->test_mask & TEST_MASK_HASH) && opts->digest_len_bits <= 0) {
-        fprintf(stderr, "error: --digest-len-bits is required when hash test is selected\n");
-        return -1;
+    if (opts->test_mask & TEST_MASK_HASH) {
+        if (opts->digest_len_bits <= 0) {
+            fprintf(stderr, "error: --digest-len-bits is required when hash test is selected\n");
+            return -1;
+        }
+        if (!is_valid_digest_len_bits(opts->digest_len_bits)) {
+            fprintf(stderr,
+                    "error: --digest-len-bits exceeds maximum supported digest size (%llu bits)\n",
+                    NGCC_MAX_BUFFER_LEN * 8ULL);
+            return -1;
+        }
     }
 
     correctness_selected = (opts->mode_mask & MODE_MASK_CORRECTNESS) != 0;
