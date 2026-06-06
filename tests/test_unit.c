@@ -12,6 +12,9 @@
 #include <unistd.h>
 
 #include "bench_core.h"
+#include "bench_hash.h"
+#include "bench_kem.h"
+#include "bench_kex.h"
 #include "cli_parser.h"
 #include "cli_types.h"
 #include "json_report.h"
@@ -331,9 +334,15 @@ static void test_parse_int_value_valid(void) {
 
 static void test_parse_int_value_invalid(void) {
     int val = 0;
+#if LONG_MAX > INT_MAX
+    char too_big[64];
+    TEST_ASSERT(snprintf(too_big, sizeof(too_big), "%ld", (long) INT_MAX + 1L) < (int) sizeof(too_big));
+    TEST_ASSERT_INT_EQ(parse_int_value(too_big, &val), -1);
+#endif
     TEST_ASSERT_INT_EQ(parse_int_value(NULL, &val), -1);
     TEST_ASSERT_INT_EQ(parse_int_value("", &val), -1);
     TEST_ASSERT_INT_EQ(parse_int_value("xyz", &val), -1);
+    TEST_ASSERT_INT_EQ(parse_int_value("999999999999999999999999999999999999", &val), -1);
 }
 
 /* ── parse_double_value tests ─────────────────────────────────── */
@@ -399,6 +408,400 @@ static void test_is_valid_len(void) {
     TEST_ASSERT(!ngcc_is_valid_len(NGCC_MAX_BUFFER_LEN + 1));
 }
 
+static void test_validate_options_rejects_large_digest_len(void) {
+    cli_options_t opts;
+
+    init_default_options(&opts);
+    opts.lib_path = "/tmp/mock_lib.so";
+    opts.test_mask = TEST_MASK_HASH;
+    opts.digest_len_bits = (int) (NGCC_MAX_BUFFER_LEN * 8ULL) + 1;
+
+    TEST_ASSERT_INT_EQ(validate_options(&opts), -1);
+}
+
+/* ── correctness sentinel tests ───────────────────────────────── */
+
+static int test_hash_no_write(int digest_len_bits,
+                              const unsigned char *msg,
+                              unsigned long long msg_len_bits,
+                              unsigned char *digest) {
+    (void) digest_len_bits;
+    (void) msg;
+    (void) msg_len_bits;
+    (void) digest;
+    return 0;
+}
+
+static void test_hash_correctness_rejects_no_write_digest(void) {
+    ngcc_api_t api;
+
+    memset(&api, 0, sizeof(api));
+    api.CryptHash = test_hash_no_write;
+
+    TEST_ASSERT_INT_EQ(ngcc_hash_correctness(&api, 64, 16), -1);
+}
+
+/* ── KEM performance length validation tests ───────────────────── */
+
+#define TEST_KEM_PK_CAP 8ULL
+#define TEST_KEM_SK_CAP 8ULL
+#define TEST_KEM_CT_CAP 8ULL
+#define TEST_KEM_SS_CAP 8ULL
+
+static unsigned long long test_kem_get_pk_len_bytes(void) { return TEST_KEM_PK_CAP; }
+static unsigned long long test_kem_get_sk_len_bytes(void) { return TEST_KEM_SK_CAP; }
+static unsigned long long test_kem_get_ct_len_bytes(void) { return TEST_KEM_CT_CAP; }
+static unsigned long long test_kem_get_ss_len_bytes(void) { return TEST_KEM_SS_CAP; }
+
+static int test_kem_keygen_valid(unsigned char *pk, unsigned long long *pk_len_bytes,
+                                 unsigned char *sk, unsigned long long *sk_len_bytes) {
+    memset(pk, 0xA5, (size_t) TEST_KEM_PK_CAP);
+    memset(sk, 0x5A, (size_t) TEST_KEM_SK_CAP);
+    *pk_len_bytes = TEST_KEM_PK_CAP;
+    *sk_len_bytes = TEST_KEM_SK_CAP;
+    return 0;
+}
+
+static int test_kem_keygen_bad_pk_len(unsigned char *pk, unsigned long long *pk_len_bytes,
+                                      unsigned char *sk, unsigned long long *sk_len_bytes) {
+    memset(pk, 0xA5, (size_t) TEST_KEM_PK_CAP);
+    memset(sk, 0x5A, (size_t) TEST_KEM_SK_CAP);
+    *pk_len_bytes = TEST_KEM_PK_CAP + 1ULL;
+    *sk_len_bytes = TEST_KEM_SK_CAP;
+    return 0;
+}
+
+static int test_kem_keygen_bad_sk_len(unsigned char *pk, unsigned long long *pk_len_bytes,
+                                      unsigned char *sk, unsigned long long *sk_len_bytes) {
+    memset(pk, 0xA5, (size_t) TEST_KEM_PK_CAP);
+    memset(sk, 0x5A, (size_t) TEST_KEM_SK_CAP);
+    *pk_len_bytes = TEST_KEM_PK_CAP;
+    *sk_len_bytes = TEST_KEM_SK_CAP + 1ULL;
+    return 0;
+}
+
+static int test_kem_enc_valid(unsigned char *pk, unsigned long long pk_len_bytes,
+                              unsigned char *ss, unsigned long long *ss_len_bytes,
+                              unsigned char *ct, unsigned long long *ct_len_bytes) {
+    (void) pk;
+    (void) pk_len_bytes;
+    memset(ss, 0x11, (size_t) TEST_KEM_SS_CAP);
+    memset(ct, 0x22, (size_t) TEST_KEM_CT_CAP);
+    *ss_len_bytes = TEST_KEM_SS_CAP;
+    *ct_len_bytes = TEST_KEM_CT_CAP;
+    return 0;
+}
+
+static int test_kem_enc_bad_ct_len(unsigned char *pk, unsigned long long pk_len_bytes,
+                                   unsigned char *ss, unsigned long long *ss_len_bytes,
+                                   unsigned char *ct, unsigned long long *ct_len_bytes) {
+    (void) pk;
+    (void) pk_len_bytes;
+    memset(ss, 0x11, (size_t) TEST_KEM_SS_CAP);
+    memset(ct, 0x22, (size_t) TEST_KEM_CT_CAP);
+    *ss_len_bytes = TEST_KEM_SS_CAP;
+    *ct_len_bytes = TEST_KEM_CT_CAP + 1ULL;
+    return 0;
+}
+
+static int test_kem_enc_no_write_ss(unsigned char *pk, unsigned long long pk_len_bytes,
+                                    unsigned char *ss, unsigned long long *ss_len_bytes,
+                                    unsigned char *ct, unsigned long long *ct_len_bytes) {
+    (void) pk;
+    (void) pk_len_bytes;
+    (void) ss;
+    memset(ct, 0x22, (size_t) TEST_KEM_CT_CAP);
+    *ss_len_bytes = TEST_KEM_SS_CAP;
+    *ct_len_bytes = TEST_KEM_CT_CAP;
+    return 0;
+}
+
+static int test_kem_dec_valid(unsigned char *sk, unsigned long long sk_len_bytes,
+                              unsigned char *ct, unsigned long long ct_len_bytes,
+                              unsigned char *ss, unsigned long long *ss_len_bytes) {
+    (void) sk;
+    (void) sk_len_bytes;
+    (void) ct;
+    (void) ct_len_bytes;
+    memset(ss, 0x11, (size_t) TEST_KEM_SS_CAP);
+    *ss_len_bytes = TEST_KEM_SS_CAP;
+    return 0;
+}
+
+static int test_kem_dec_bad_ss_len(unsigned char *sk, unsigned long long sk_len_bytes,
+                                   unsigned char *ct, unsigned long long ct_len_bytes,
+                                   unsigned char *ss, unsigned long long *ss_len_bytes) {
+    (void) sk;
+    (void) sk_len_bytes;
+    (void) ct;
+    (void) ct_len_bytes;
+    memset(ss, 0x11, (size_t) TEST_KEM_SS_CAP);
+    *ss_len_bytes = TEST_KEM_SS_CAP + 1ULL;
+    return 0;
+}
+
+static int test_kem_dec_no_write_ss(unsigned char *sk, unsigned long long sk_len_bytes,
+                                    unsigned char *ct, unsigned long long ct_len_bytes,
+                                    unsigned char *ss, unsigned long long *ss_len_bytes) {
+    (void) sk;
+    (void) sk_len_bytes;
+    (void) ct;
+    (void) ct_len_bytes;
+    (void) ss;
+    *ss_len_bytes = TEST_KEM_SS_CAP;
+    return 0;
+}
+
+static void init_test_kem_api(ngcc_api_t *api,
+                              int (*keygen_fn)(unsigned char *, unsigned long long *,
+                                                unsigned char *, unsigned long long *),
+                              int (*enc_fn)(unsigned char *, unsigned long long,
+                                             unsigned char *, unsigned long long *,
+                                             unsigned char *, unsigned long long *),
+                              int (*dec_fn)(unsigned char *, unsigned long long,
+                                             unsigned char *, unsigned long long,
+                                             unsigned char *, unsigned long long *)) {
+    memset(api, 0, sizeof(*api));
+    api->kem_get_pk_len_bytes = test_kem_get_pk_len_bytes;
+    api->kem_get_sk_len_bytes = test_kem_get_sk_len_bytes;
+    api->kem_get_ct_len_bytes = test_kem_get_ct_len_bytes;
+    api->kem_get_ss_len_bytes = test_kem_get_ss_len_bytes;
+    api->kem_keygen = keygen_fn;
+    api->kem_enc = enc_fn;
+    api->kem_dec = dec_fn;
+}
+
+static ngcc_perf_config_t test_kem_perf_config(void) {
+    ngcc_perf_config_t cfg;
+    cfg.iterations = 1;
+    cfg.bytes_per_op = 0;
+    return cfg;
+}
+
+static void test_kem_correctness_rejects_no_write_shared_secret(void) {
+    ngcc_api_t api;
+
+    init_test_kem_api(&api, test_kem_keygen_valid, test_kem_enc_no_write_ss, test_kem_dec_no_write_ss);
+
+    TEST_ASSERT_INT_EQ(ngcc_kem_correctness(&api), -1);
+}
+
+static void test_kem_keygen_performance_rejects_bad_lengths(void) {
+    ngcc_api_t api;
+    ngcc_perf_config_t cfg = test_kem_perf_config();
+    ngcc_perf_result_t result;
+
+    memset(&result, 0, sizeof(result));
+    init_test_kem_api(&api, test_kem_keygen_bad_pk_len, test_kem_enc_valid, test_kem_dec_valid);
+
+    TEST_ASSERT_INT_EQ(ngcc_kem_keygen_performance(&api, &cfg, &result), -1);
+}
+
+static void test_kem_encap_performance_rejects_bad_setup_key_length(void) {
+    ngcc_api_t api;
+    ngcc_perf_config_t cfg = test_kem_perf_config();
+    ngcc_perf_result_t result;
+
+    memset(&result, 0, sizeof(result));
+    init_test_kem_api(&api, test_kem_keygen_bad_pk_len, test_kem_enc_valid, test_kem_dec_valid);
+
+    TEST_ASSERT_INT_EQ(ngcc_kem_encap_performance(&api, &cfg, &result), -1);
+}
+
+static void test_kem_encap_performance_rejects_bad_encap_length(void) {
+    ngcc_api_t api;
+    ngcc_perf_config_t cfg = test_kem_perf_config();
+    ngcc_perf_result_t result;
+
+    memset(&result, 0, sizeof(result));
+    init_test_kem_api(&api, test_kem_keygen_valid, test_kem_enc_bad_ct_len, test_kem_dec_valid);
+
+    TEST_ASSERT_INT_EQ(ngcc_kem_encap_performance(&api, &cfg, &result), -1);
+}
+
+static void test_kem_decap_performance_rejects_bad_setup_key_length(void) {
+    ngcc_api_t api;
+    ngcc_perf_config_t cfg = test_kem_perf_config();
+    ngcc_perf_result_t result;
+
+    memset(&result, 0, sizeof(result));
+    init_test_kem_api(&api, test_kem_keygen_bad_sk_len, test_kem_enc_valid, test_kem_dec_valid);
+
+    TEST_ASSERT_INT_EQ(ngcc_kem_decap_performance(&api, &cfg, &result), -1);
+}
+
+static void test_kem_decap_performance_rejects_bad_decap_length(void) {
+    ngcc_api_t api;
+    ngcc_perf_config_t cfg = test_kem_perf_config();
+    ngcc_perf_result_t result;
+
+    memset(&result, 0, sizeof(result));
+    init_test_kem_api(&api, test_kem_keygen_valid, test_kem_enc_valid, test_kem_dec_bad_ss_len);
+
+    TEST_ASSERT_INT_EQ(ngcc_kem_decap_performance(&api, &cfg, &result), -1);
+}
+
+/* ── KEX correctness sentinel tests ────────────────────────────── */
+
+#define TEST_KEX_CAP 8ULL
+#define TEST_KEX_PASSES 2ULL
+
+static unsigned long long test_kex_get_passes_num(void) { return TEST_KEX_PASSES; }
+static unsigned long long test_kex_get_pk_len_bytes(void) { return TEST_KEX_CAP; }
+static unsigned long long test_kex_get_sk_len_bytes(void) { return TEST_KEX_CAP; }
+static unsigned long long test_kex_get_sta_len_bytes(void) { return TEST_KEX_CAP; }
+static unsigned long long test_kex_get_stb_len_bytes(void) { return TEST_KEX_CAP; }
+static unsigned long long test_kex_get_ss_len_bytes(void) { return TEST_KEX_CAP; }
+static unsigned long long test_kex_get_total_msg_len_bytes(void) { return TEST_KEX_CAP; }
+
+static int test_kex_init_a_valid(unsigned char *pka, unsigned long long *pka_len_bytes,
+                                 unsigned char *ska, unsigned long long *ska_len_bytes,
+                                 unsigned char *sta, unsigned long long *sta_len_bytes) {
+    memset(pka, 0xA1, (size_t) TEST_KEX_CAP);
+    memset(ska, 0xA2, (size_t) TEST_KEX_CAP);
+    memset(sta, 0xA3, (size_t) TEST_KEX_CAP);
+    *pka_len_bytes = TEST_KEX_CAP;
+    *ska_len_bytes = TEST_KEX_CAP;
+    *sta_len_bytes = TEST_KEX_CAP;
+    return 0;
+}
+
+static int test_kex_init_b_valid(unsigned char *pkb, unsigned long long *pkb_len_bytes,
+                                 unsigned char *skb, unsigned long long *skb_len_bytes,
+                                 unsigned char *stb, unsigned long long *stb_len_bytes) {
+    memset(pkb, 0xB1, (size_t) TEST_KEX_CAP);
+    memset(skb, 0xB2, (size_t) TEST_KEX_CAP);
+    memset(stb, 0xB3, (size_t) TEST_KEX_CAP);
+    *pkb_len_bytes = TEST_KEX_CAP;
+    *skb_len_bytes = TEST_KEX_CAP;
+    *stb_len_bytes = TEST_KEX_CAP;
+    return 0;
+}
+
+static int test_kex_pass1_valid(unsigned char *sk, unsigned long long sk_len,
+                                unsigned char *pk, unsigned long long pk_len,
+                                unsigned char *st, unsigned long long *st_len,
+                                unsigned char *m_out, unsigned long long *m_out_len) {
+    (void) sk;
+    (void) sk_len;
+    (void) pk;
+    (void) pk_len;
+    memset(st, 0xC1, (size_t) TEST_KEX_CAP);
+    memset(m_out, 0xD1, (size_t) TEST_KEX_CAP);
+    *st_len = TEST_KEX_CAP;
+    *m_out_len = TEST_KEX_CAP;
+    return 0;
+}
+
+static int test_kex_pass2_valid(unsigned char *sk, unsigned long long sk_len,
+                                unsigned char *pk, unsigned long long pk_len,
+                                unsigned char *m_in, unsigned long long m_in_len,
+                                unsigned char *st, unsigned long long *st_len,
+                                unsigned char *m_out, unsigned long long *m_out_len) {
+    (void) sk;
+    (void) sk_len;
+    (void) pk;
+    (void) pk_len;
+    (void) m_in;
+    (void) m_in_len;
+    memset(st, 0xC2, (size_t) TEST_KEX_CAP);
+    memset(m_out, 0xD2, (size_t) TEST_KEX_CAP);
+    *st_len = TEST_KEX_CAP;
+    *m_out_len = TEST_KEX_CAP;
+    return 0;
+}
+
+static int test_kex_derive_ss_a_no_write(unsigned char *ska, unsigned long long ska_len_bytes,
+                                         unsigned char *pkb, unsigned long long pkb_len_bytes,
+                                         unsigned char *mb, unsigned long long mb_len_bytes,
+                                         unsigned char *sta, unsigned long long sta_len_bytes,
+                                         unsigned char *ssa, unsigned long long *ssa_len_bytes) {
+    (void) ska;
+    (void) ska_len_bytes;
+    (void) pkb;
+    (void) pkb_len_bytes;
+    (void) mb;
+    (void) mb_len_bytes;
+    (void) sta;
+    (void) sta_len_bytes;
+    (void) ssa;
+    *ssa_len_bytes = TEST_KEX_CAP;
+    return 0;
+}
+
+static int test_kex_derive_ss_b_no_write(unsigned char *skb, unsigned long long skb_len_bytes,
+                                         unsigned char *pka, unsigned long long pka_len_bytes,
+                                         unsigned char *ma, unsigned long long ma_len_bytes,
+                                         unsigned char *stb, unsigned long long stb_len_bytes,
+                                         unsigned char *ssb, unsigned long long *ssb_len_bytes) {
+    (void) skb;
+    (void) skb_len_bytes;
+    (void) pka;
+    (void) pka_len_bytes;
+    (void) ma;
+    (void) ma_len_bytes;
+    (void) stb;
+    (void) stb_len_bytes;
+    (void) ssb;
+    *ssb_len_bytes = TEST_KEX_CAP;
+    return 0;
+}
+
+static kex_pass_fn_t test_kex_pass_fns[] = {
+    test_kex_pass2_valid
+};
+
+static void init_test_kex_no_write_api(ngcc_api_t *api) {
+    memset(api, 0, sizeof(*api));
+    api->kex_get_passes_num = test_kex_get_passes_num;
+    api->kex_get_pk_len_bytes = test_kex_get_pk_len_bytes;
+    api->kex_get_sk_len_bytes = test_kex_get_sk_len_bytes;
+    api->kex_get_sta_len_bytes = test_kex_get_sta_len_bytes;
+    api->kex_get_stb_len_bytes = test_kex_get_stb_len_bytes;
+    api->kex_get_ss_len_bytes = test_kex_get_ss_len_bytes;
+    api->kex_get_total_msg_len_bytes = test_kex_get_total_msg_len_bytes;
+    api->kex_init_a = test_kex_init_a_valid;
+    api->kex_init_b = test_kex_init_b_valid;
+    api->kex_passes_num = TEST_KEX_PASSES;
+    api->kex_pass1_fn = test_kex_pass1_valid;
+    api->kex_pass_fns = test_kex_pass_fns;
+    api->kex_derive_ss_a = test_kex_derive_ss_a_no_write;
+    api->kex_derive_ss_b = test_kex_derive_ss_b_no_write;
+}
+
+static void test_kex_correctness_rejects_no_write_shared_secret(void) {
+    ngcc_api_t api;
+
+    init_test_kex_no_write_api(&api);
+
+    TEST_ASSERT_INT_EQ(ngcc_kex_correctness(&api), -1);
+}
+
+static void test_kex_correctness_rejects_one_pass(void) {
+    ngcc_api_t api;
+
+    memset(&api, 0, sizeof(api));
+    api.kex_passes_num = NGCC_KEX_MIN_PASSES - 1ULL;
+
+    TEST_ASSERT_INT_EQ(ngcc_kex_correctness(&api), -1);
+}
+
+static void test_kex_derive_performance_rejects_one_pass(void) {
+    ngcc_api_t api;
+    ngcc_perf_config_t cfg;
+    ngcc_perf_result_t out_a;
+    ngcc_perf_result_t out_b;
+
+    memset(&api, 0, sizeof(api));
+    memset(&out_a, 0, sizeof(out_a));
+    memset(&out_b, 0, sizeof(out_b));
+    api.kex_passes_num = NGCC_KEX_MIN_PASSES - 1ULL;
+    cfg.iterations = 1;
+    cfg.bytes_per_op = 0;
+
+    TEST_ASSERT_INT_EQ(ngcc_kex_derive_ss_performance(&api, &cfg, &out_a, &out_b), -1);
+}
+
 /* ── stability thresholds defaults tests ──────────────────────── */
 
 static void test_stability_thresholds_defaults(void) {
@@ -421,13 +824,18 @@ static void test_write_json_report_basic(void) {
     };
     char tmp_dir[] = "/tmp/ngcc_unit_json.XXXXXX";
     char json_path[PATH_MAX];
+    char link_path[PATH_MAX];
+    char target_path[PATH_MAX];
     cli_options_t opts;
     run_report_t report;
     char *json_data = NULL;
+    FILE *fp;
     size_t i;
 
     TEST_ASSERT(mkdtemp(tmp_dir) != NULL);
     TEST_ASSERT(snprintf(json_path, sizeof(json_path), "%s/report.json", tmp_dir) < (int) sizeof(json_path));
+    TEST_ASSERT(snprintf(link_path, sizeof(link_path), "%s/report-link.json", tmp_dir) < (int) sizeof(link_path));
+    TEST_ASSERT(snprintf(target_path, sizeof(target_path), "%s/report-target.json", tmp_dir) < (int) sizeof(target_path));
 
     init_default_options(&opts);
     memset(&report, 0, sizeof(report));
@@ -490,6 +898,30 @@ static void test_write_json_report_basic(void) {
     free(json_data);
     json_data = NULL;
     TEST_ASSERT(unlink(json_path) == 0);
+
+    fp = fopen(json_path, "wb");
+    TEST_ASSERT(fp != NULL);
+    TEST_ASSERT(fputs("keep", fp) >= 0);
+    TEST_ASSERT(fclose(fp) == 0);
+    TEST_ASSERT_INT_EQ(write_json_report(&opts, &report, 1, LANG_EN, json_path), -1);
+    TEST_ASSERT_INT_EQ(read_text_file(json_path, &json_data), 0);
+    TEST_ASSERT(strcmp(json_data, "keep") == 0);
+    free(json_data);
+    json_data = NULL;
+    TEST_ASSERT(unlink(json_path) == 0);
+
+    fp = fopen(target_path, "wb");
+    TEST_ASSERT(fp != NULL);
+    TEST_ASSERT(fputs("target", fp) >= 0);
+    TEST_ASSERT(fclose(fp) == 0);
+    TEST_ASSERT(symlink(target_path, link_path) == 0);
+    TEST_ASSERT_INT_EQ(write_json_report(&opts, &report, 1, LANG_EN, link_path), -1);
+    TEST_ASSERT_INT_EQ(read_text_file(target_path, &json_data), 0);
+    TEST_ASSERT(strcmp(json_data, "target") == 0);
+    free(json_data);
+    json_data = NULL;
+    TEST_ASSERT(unlink(link_path) == 0);
+    TEST_ASSERT(unlink(target_path) == 0);
 
     TEST_ASSERT(rmdir(tmp_dir) == 0);
 }
@@ -619,6 +1051,21 @@ int main(void) {
 
     /* ngcc_is_valid_len */
     RUN_TEST(test_is_valid_len);
+    RUN_TEST(test_validate_options_rejects_large_digest_len);
+
+    /* correctness sentinels */
+    RUN_TEST(test_hash_correctness_rejects_no_write_digest);
+    RUN_TEST(test_kem_correctness_rejects_no_write_shared_secret);
+    RUN_TEST(test_kex_correctness_rejects_no_write_shared_secret);
+    RUN_TEST(test_kex_correctness_rejects_one_pass);
+    RUN_TEST(test_kex_derive_performance_rejects_one_pass);
+
+    /* KEM performance length validation */
+    RUN_TEST(test_kem_keygen_performance_rejects_bad_lengths);
+    RUN_TEST(test_kem_encap_performance_rejects_bad_setup_key_length);
+    RUN_TEST(test_kem_encap_performance_rejects_bad_encap_length);
+    RUN_TEST(test_kem_decap_performance_rejects_bad_setup_key_length);
+    RUN_TEST(test_kem_decap_performance_rejects_bad_decap_length);
 
     /* stability thresholds defaults */
     RUN_TEST(test_stability_thresholds_defaults);

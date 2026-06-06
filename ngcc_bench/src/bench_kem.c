@@ -22,7 +22,88 @@ typedef struct {
     unsigned long long ss_cap;
 } kem_perf_ctx_t;
 
+static int kem_is_valid_output_len(unsigned long long len, unsigned long long cap) {
+    return len != 0 && len <= cap;
+}
 
+static int kem_keygen_checked(const ngcc_api_t *api,
+                              unsigned char *pk,
+                              unsigned long long pk_cap,
+                              unsigned char *sk,
+                              unsigned long long sk_cap,
+                              unsigned long long *out_pk_len,
+                              unsigned long long *out_sk_len) {
+    unsigned long long pk_len = pk_cap;
+    unsigned long long sk_len = sk_cap;
+
+    if (api->kem_keygen(pk, &pk_len, sk, &sk_len) != 0) {
+        return -1;
+    }
+    if (!kem_is_valid_output_len(pk_len, pk_cap) ||
+        !kem_is_valid_output_len(sk_len, sk_cap)) {
+        return -1;
+    }
+
+    if (out_pk_len != NULL) {
+        *out_pk_len = pk_len;
+    }
+    if (out_sk_len != NULL) {
+        *out_sk_len = sk_len;
+    }
+    return 0;
+}
+
+static int kem_enc_checked(const ngcc_api_t *api,
+                           unsigned char *pk,
+                           unsigned long long pk_len,
+                           unsigned char *ss,
+                           unsigned long long ss_cap,
+                           unsigned long long *out_ss_len,
+                           unsigned char *ct,
+                           unsigned long long ct_cap,
+                           unsigned long long *out_ct_len) {
+    unsigned long long ss_len = ss_cap;
+    unsigned long long ct_len = ct_cap;
+
+    if (api->kem_enc(pk, pk_len, ss, &ss_len, ct, &ct_len) != 0) {
+        return -1;
+    }
+    if (!kem_is_valid_output_len(ss_len, ss_cap) ||
+        !kem_is_valid_output_len(ct_len, ct_cap)) {
+        return -1;
+    }
+
+    if (out_ss_len != NULL) {
+        *out_ss_len = ss_len;
+    }
+    if (out_ct_len != NULL) {
+        *out_ct_len = ct_len;
+    }
+    return 0;
+}
+
+static int kem_dec_checked(const ngcc_api_t *api,
+                           unsigned char *sk,
+                           unsigned long long sk_len,
+                           unsigned char *ct,
+                           unsigned long long ct_len,
+                           unsigned char *ss,
+                           unsigned long long ss_cap,
+                           unsigned long long *out_ss_len) {
+    unsigned long long ss_len = ss_cap;
+
+    if (api->kem_dec(sk, sk_len, ct, ct_len, ss, &ss_len) != 0) {
+        return -1;
+    }
+    if (!kem_is_valid_output_len(ss_len, ss_cap)) {
+        return -1;
+    }
+
+    if (out_ss_len != NULL) {
+        *out_ss_len = ss_len;
+    }
+    return 0;
+}
 
 static int kem_run_once(const ngcc_api_t *api,
                         unsigned char *pk,
@@ -34,30 +115,22 @@ static int kem_run_once(const ngcc_api_t *api,
                         unsigned char *ss_a,
                         unsigned char *ss_b,
                         unsigned long long ss_cap) {
-    unsigned long long pk_len = pk_cap;
-    unsigned long long sk_len = sk_cap;
-    unsigned long long ct_len = ct_cap;
-    unsigned long long ss_a_len = ss_cap;
-    unsigned long long ss_b_len = ss_cap;
+    unsigned long long pk_len;
+    unsigned long long sk_len;
+    unsigned long long ct_len;
+    unsigned long long ss_a_len;
+    unsigned long long ss_b_len;
 
-    if (api->kem_keygen(pk, &pk_len, sk, &sk_len) != 0) {
-        return -1;
-    }
-    if (pk_len == 0 || pk_len > pk_cap || sk_len == 0 || sk_len > sk_cap) {
+    if (kem_keygen_checked(api, pk, pk_cap, sk, sk_cap, &pk_len, &sk_len) != 0) {
         return -1;
     }
 
-    if (api->kem_enc(pk, pk_len, ss_a, &ss_a_len, ct, &ct_len) != 0) {
-        return -1;
-    }
-    if (ss_a_len == 0 || ss_a_len > ss_cap || ct_len == 0 || ct_len > ct_cap) {
+    if (kem_enc_checked(api, pk, pk_len, ss_a, ss_cap, &ss_a_len, ct, ct_cap, &ct_len) != 0) {
         return -1;
     }
 
-    if (api->kem_dec(sk, sk_len, ct, ct_len, ss_b, &ss_b_len) != 0) {
-        return -1;
-    }
-    if (ss_b_len == 0 || ss_b_len > ss_cap || ss_a_len != ss_b_len) {
+    if (kem_dec_checked(api, sk, sk_len, ct, ct_len, ss_b, ss_cap, &ss_b_len) != 0 ||
+        ss_a_len != ss_b_len) {
         return -1;
     }
 
@@ -114,6 +187,12 @@ int ngcc_kem_correctness(const ngcc_api_t *api) {
     if (pk == NULL || sk == NULL || ct == NULL || ss_a == NULL || ss_b == NULL) {
         goto out;
     }
+
+    memset(pk, 0xA5, (size_t) pk_cap);
+    memset(sk, 0x5A, (size_t) sk_cap);
+    memset(ct, 0x3C, (size_t) ct_cap);
+    memset(ss_a, 0xA5, (size_t) ss_cap);
+    memset(ss_b, 0x5A, (size_t) ss_cap);
 
     if (kem_run_once(api, pk, pk_cap, sk, sk_cap, ct, ct_cap, ss_a, ss_b, ss_cap) != 0) {
         goto out;
@@ -388,9 +467,13 @@ cleanup:
 
 static int kem_keygen_perf_op(void *ctx_ptr) {
     kem_perf_ctx_t *ctx = (kem_perf_ctx_t *) ctx_ptr;
-    unsigned long long pk_len = ctx->pk_cap;
-    unsigned long long sk_len = ctx->sk_cap;
-    return ctx->api->kem_keygen(ctx->pk, &pk_len, ctx->sk, &sk_len);
+    return kem_keygen_checked(ctx->api,
+                              ctx->pk,
+                              ctx->pk_cap,
+                              ctx->sk,
+                              ctx->sk_cap,
+                              NULL,
+                              NULL);
 }
 
 int ngcc_kem_keygen_performance(const ngcc_api_t *api,
@@ -447,9 +530,15 @@ typedef struct {
 
 static int kem_encap_perf_op(void *ctx_ptr) {
     kem_encap_perf_ctx_t *ctx = (kem_encap_perf_ctx_t *) ctx_ptr;
-    unsigned long long ss_len = ctx->ss_cap;
-    unsigned long long ct_len = ctx->ct_cap;
-    return ctx->api->kem_enc(ctx->pk, ctx->pk_len, ctx->ss, &ss_len, ctx->ct, &ct_len);
+    return kem_enc_checked(ctx->api,
+                           ctx->pk,
+                           ctx->pk_len,
+                           ctx->ss,
+                           ctx->ss_cap,
+                           NULL,
+                           ctx->ct,
+                           ctx->ct_cap,
+                           NULL);
 }
 
 int ngcc_kem_encap_performance(const ngcc_api_t *api,
@@ -487,9 +576,8 @@ int ngcc_kem_encap_performance(const ngcc_api_t *api,
 
     /* keygen once as setup */
     {
-        unsigned long long pk_len = pk_cap;
-        unsigned long long sk_len = sk_cap;
-        if (api->kem_keygen(ctx.pk, &pk_len, sk, &sk_len) != 0) {
+        unsigned long long pk_len;
+        if (kem_keygen_checked(api, ctx.pk, pk_cap, sk, sk_cap, &pk_len, NULL) != 0) {
             goto cleanup_encap;
         }
         ctx.pk_len = pk_len;
@@ -525,8 +613,14 @@ typedef struct {
 
 static int kem_decap_perf_op(void *ctx_ptr) {
     kem_decap_perf_ctx_t *ctx = (kem_decap_perf_ctx_t *) ctx_ptr;
-    unsigned long long ss_len = ctx->ss_cap;
-    return ctx->api->kem_dec(ctx->sk, ctx->sk_len, ctx->ct, ctx->ct_len, ctx->ss, &ss_len);
+    return kem_dec_checked(ctx->api,
+                           ctx->sk,
+                           ctx->sk_len,
+                           ctx->ct,
+                           ctx->ct_len,
+                           ctx->ss,
+                           ctx->ss_cap,
+                           NULL);
 }
 
 int ngcc_kem_decap_performance(const ngcc_api_t *api,
@@ -568,15 +662,14 @@ int ngcc_kem_decap_performance(const ngcc_api_t *api,
 
     /* keygen + encap once as setup */
     {
-        unsigned long long pk_len = pk_cap;
-        unsigned long long sk_len_out = sk_cap;
-        unsigned long long ss_len = ss_cap;
-        unsigned long long ct_len = ct_cap;
-        if (api->kem_keygen(pk, &pk_len, ctx.sk, &sk_len_out) != 0) {
+        unsigned long long pk_len;
+        unsigned long long sk_len_out;
+        unsigned long long ct_len;
+        if (kem_keygen_checked(api, pk, pk_cap, ctx.sk, sk_cap, &pk_len, &sk_len_out) != 0) {
             goto cleanup_decap;
         }
         ctx.sk_len = sk_len_out;
-        if (api->kem_enc(pk, pk_len, ss_enc, &ss_len, ctx.ct, &ct_len) != 0) {
+        if (kem_enc_checked(api, pk, pk_len, ss_enc, ss_cap, NULL, ctx.ct, ct_cap, &ct_len) != 0) {
             goto cleanup_decap;
         }
         ctx.ct_len = ct_len;

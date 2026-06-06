@@ -1,5 +1,7 @@
 #include <limits.h>
+#include <fcntl.h>
 #include <stdio.h>
+#include <sys/stat.h>
 #include <sys/utsname.h>
 #include <string.h>
 #include <time.h>
@@ -11,6 +13,10 @@
 
 #ifndef NGCC_VERSION
 #define NGCC_VERSION "unknown"
+#endif
+
+#ifndef O_NOFOLLOW
+#define O_NOFOLLOW 0
 #endif
 
 /* ── JSON writer helpers ──────────────────────────────────────── */
@@ -215,6 +221,29 @@ static void write_environment_metadata(json_writer_t *w, int lang) {
     jw_end_object(w);
 }
 
+static FILE *open_json_report_file(const char *out_path) {
+    int fd;
+    struct stat st;
+    FILE *fp;
+
+    fd = open(out_path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+    if (fd < 0) {
+        return NULL;
+    }
+
+    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+        close(fd);
+        return NULL;
+    }
+
+    fp = fdopen(fd, "w");
+    if (fp == NULL) {
+        close(fd);
+        return NULL;
+    }
+    return fp;
+}
+
 /* ── Public API ────────────────────────────────────────────────── */
 
 int write_json_report(const cli_options_t *opts,
@@ -233,7 +262,7 @@ int write_json_report(const cli_options_t *opts,
         return 0;
     }
 
-    fp = fopen(out_path, "w");
+    fp = open_json_report_file(out_path);
     if (fp == NULL) {
         fprintf(stderr, "[ERROR][report] failed to open json report: %s\n", out_path);
         return -1;
@@ -459,14 +488,21 @@ int write_json_reports(const cli_options_t *opts,
                        int overall_failed) {
     char path_zh[4096];
     char path_en[4096];
+    int path_zh_len;
+    int path_en_len;
     int rc;
 
     if (opts == NULL || report == NULL || opts->json_out_path == NULL) {
         return 0;
     }
 
-    snprintf(path_zh, sizeof(path_zh), "%s.zh", opts->json_out_path);
-    snprintf(path_en, sizeof(path_en), "%s.en", opts->json_out_path);
+    path_zh_len = snprintf(path_zh, sizeof(path_zh), "%s.zh", opts->json_out_path);
+    path_en_len = snprintf(path_en, sizeof(path_en), "%s.en", opts->json_out_path);
+    if (path_zh_len < 0 || path_zh_len >= (int) sizeof(path_zh) ||
+        path_en_len < 0 || path_en_len >= (int) sizeof(path_en)) {
+        fprintf(stderr, "[ERROR][report] json report path is too long\n");
+        return -1;
+    }
 
     rc = write_json_report(opts, report, overall_failed, LANG_ZH, path_zh);
     if (rc != 0) {

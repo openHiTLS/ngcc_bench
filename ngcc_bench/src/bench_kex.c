@@ -9,6 +9,12 @@
 #include "bench_core.h"
 #include "kat_parser.h"
 
+static int kex_has_supported_pass_count(const ngcc_api_t *api) {
+    return api != NULL &&
+           api->kex_passes_num >= NGCC_KEX_MIN_PASSES &&
+           api->kex_passes_num <= NGCC_KEX_MAX_PASSES;
+}
+
 /* Dynamic multi-pass KEX execution.
  * Pass 1 (A-side, 8 params): ska, pkb, sta, m_out
  * Pass 2+ (10 params): sk, pk, m_in, st, m_out
@@ -54,6 +60,17 @@ static int kex_run_once(const ngcc_api_t *api,
     unsigned long long p;
     int rc;
 
+    if (!kex_has_supported_pass_count(api)) {
+        return -1;
+    }
+
+    memset(pka, 0xA5, (size_t) pk_cap);
+    memset(ska, 0xA6, (size_t) sk_cap);
+    memset(sta, 0xA7, (size_t) sta_cap);
+    memset(pkb, 0x5A, (size_t) pk_cap);
+    memset(skb, 0x5B, (size_t) sk_cap);
+    memset(stb, 0x5C, (size_t) stb_cap);
+
     if (api->kex_init_a(pka, &pka_len, ska, &ska_len, sta, &sta_len) != 0) {
         return -1;
     }
@@ -72,6 +89,7 @@ static int kex_run_once(const ngcc_api_t *api,
 
     /* Pass 1: A-side, 8 params (ska, pkb, sta, m_out) */
     m_cur = msg_buf0;
+    memset(m_cur, 0xA8, (size_t) msg_cap);
     m_cur_len = msg_cap;
     rc = api->kex_pass1_fn(ska, ska_len, pkb, pkb_len, sta, &sta_len, m_cur, &m_cur_len);
     if (rc < 0) {
@@ -89,6 +107,7 @@ static int kex_run_once(const ngcc_api_t *api,
         m_prev = m_cur;
         m_prev_len = m_cur_len;
         m_cur = (m_prev == msg_buf0) ? msg_buf1 : msg_buf0;
+        memset(m_cur, (p % 2 == 0) ? 0x5D : 0xA9, (size_t) msg_cap);
         m_cur_len = msg_cap;
 
         if (p % 2 == 0) {
@@ -118,10 +137,11 @@ static int kex_run_once(const ngcc_api_t *api,
         }
     }
 
-
+    memset(ssa, 0xA5, (size_t) ss_cap);
     if (api->kex_derive_ss_a(ska, ska_len, pkb, pkb_len, mb, mb_len, sta, sta_len, ssa, &ssa_len) != 0) {
         return -1;
     }
+    memset(ssb, 0x5A, (size_t) ss_cap);
     if (api->kex_derive_ss_b(skb, skb_len, pka, pka_len, ma, ma_len, stb, stb_len, ssb, &ssb_len) != 0) {
         return -1;
     }
@@ -158,6 +178,9 @@ int ngcc_kex_correctness(const ngcc_api_t *api) {
     int rc = -1;
 
     if (api == NULL) {
+        return -1;
+    }
+    if (!kex_has_supported_pass_count(api)) {
         return -1;
     }
 
@@ -522,6 +545,9 @@ int ngcc_kex_correctness_kat_file(const ngcc_api_t *api,
     if (api == NULL || kat_path == NULL) {
         return -1;
     }
+    if (!kex_has_supported_pass_count(api)) {
+        return -1;
+    }
 
     if (!path_is_directory_kex(kat_path)) {
         fprintf(stderr, "[kex][kat] error: --kat path is not a directory: %s\n", kat_path);
@@ -643,6 +669,9 @@ int ngcc_kex_derive_ss_performance(const ngcc_api_t *api,
     if (api == NULL || cfg == NULL || out_a == NULL || out_b == NULL) {
         return -1;
     }
+    if (!kex_has_supported_pass_count(api)) {
+        return -1;
+    }
 
     pk_cap = api->kex_get_pk_len_bytes();
     sk_cap = api->kex_get_sk_len_bytes();
@@ -752,4 +781,3 @@ cleanup:
     free(ssa); free(ssb);
     return rc;
 }
-
