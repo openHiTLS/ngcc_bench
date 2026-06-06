@@ -9,6 +9,7 @@
 
 #include "cycle_counter.h"
 #include "mem_stat.h"
+#include "ngcc_log.h"
 #include "stats_util.h"
 
 static volatile sig_atomic_t g_stop_requested = 0;
@@ -102,6 +103,13 @@ int ngcc_run_stability(const ngcc_api_t *api,
 
     if (api == NULL || correctness_fn == NULL || out_result == NULL || max_cases == 0 ||
         duration_hours <= 0.0 || sample_target_ms <= 0.0 || !isfinite(sample_target_ms)) {
+        ngcc_log_error("[stability] invalid arguments: api_null=%d correctness_fn_null=%d out_null=%d max_cases=%llu duration_hours=%.6f sample_target_ms=%.6f",
+                       api == NULL,
+                       correctness_fn == NULL,
+                       out_result == NULL,
+                       max_cases,
+                       duration_hours,
+                       sample_target_ms);
         return -1;
     }
 
@@ -115,15 +123,18 @@ int ngcc_run_stability(const ngcc_api_t *api,
     }
 
     if (install_signal_handlers(&old_int, &old_term) != 0) {
+        ngcc_log_error("[stability] failed to install signal handlers");
         return -1;
     }
 
     if (ngcc_monotonic_clock_gettime(&ts_start) != 0) {
+        ngcc_log_error("[stability] failed to read start clock");
         restore_signal_handlers(&old_int, &old_term);
         return -1;
     }
 
     if (cycle_counter_open(&counter, cycles_enabled) != 0) {
+        ngcc_log_warning("[stability] cycle counter unavailable, falling back to time-only metrics");
         counter.source = CYCLE_SOURCE_NONE;
         counter.perf_fd = -1;
         cycles_warning_printed = 1;
@@ -161,6 +172,9 @@ int ngcc_run_stability(const ngcc_api_t *api,
         }
 
         if (ngcc_monotonic_clock_gettime(&ts_now) != 0) {
+            ngcc_log_error("[stability] failed to read loop clock: cases_run=%llu total_executions=%llu",
+                           cases_run,
+                           total_executions);
             loop_failed = 1;
             break;
         }
@@ -172,6 +186,9 @@ int ngcc_run_stability(const ngcc_api_t *api,
         }
 
         if (ngcc_monotonic_clock_gettime(&ts_batch_start) != 0) {
+            ngcc_log_error("[stability] failed to read batch start clock: cases_run=%llu total_executions=%llu",
+                           cases_run,
+                           total_executions);
             loop_failed = 1;
             break;
         }
@@ -183,6 +200,14 @@ int ngcc_run_stability(const ngcc_api_t *api,
             total_executions++;
             if (case_rc != 0) {
                 error_count++;
+                if (error_count <= 3ULL) {
+                    ngcc_log_error("[stability] correctness case failed: case=%llu execution=%llu digest_len_bits=%d msg_len=%zu rc=%d",
+                                   cases_run + 1ULL,
+                                   total_executions,
+                                   digest_len_bits,
+                                   msg_len,
+                                   case_rc);
+                }
                 /* Continue rather than break — accumulate error rate instead of aborting */
             } else {
                 batch_ok++;
@@ -194,6 +219,9 @@ int ngcc_run_stability(const ngcc_api_t *api,
             }
 
             if (ngcc_monotonic_clock_gettime(&ts_now) != 0) {
+                ngcc_log_error("[stability] failed to read inner loop clock: cases_run=%llu total_executions=%llu",
+                               cases_run,
+                               total_executions);
                 loop_failed = 1;
                 batch_failed = 1;
                 break;
@@ -214,6 +242,9 @@ int ngcc_run_stability(const ngcc_api_t *api,
 
         batch_cycles = cycle_counter_end(&counter, batch_cycle_start);
         if (ngcc_monotonic_clock_gettime(&ts_batch_end) != 0) {
+            ngcc_log_error("[stability] failed to read batch end clock: cases_run=%llu total_executions=%llu",
+                           cases_run,
+                           total_executions);
             loop_failed = 1;
             break;
         }
@@ -297,6 +328,10 @@ int ngcc_run_stability(const ngcc_api_t *api,
     out_result->throughput_stddev_bytes = stats_stddev(&throughput_bytes_stats);
     out_result->throughput_min_bytes = throughput_bytes_stats.min;
     out_result->throughput_max_bytes = throughput_bytes_stats.max;
+    out_result->throughput_mean_mb = throughput_bytes_stats.mean / 1000000.0;
+    out_result->throughput_stddev_mb = stats_stddev(&throughput_bytes_stats) / 1000000.0;
+    out_result->throughput_min_mb = throughput_bytes_stats.min / 1000000.0;
+    out_result->throughput_max_mb = throughput_bytes_stats.max / 1000000.0;
     if (throughput_bytes_stats.mean > 0.0) {
         out_result->throughput_cv_percent_bytes = out_result->throughput_stddev_bytes * 100.0 / throughput_bytes_stats.mean;
     }
@@ -349,6 +384,19 @@ int ngcc_run_stability(const ngcc_api_t *api,
     }
     if (cycles_warning_printed) {
         append_reason(out_result->failure_reasons, sizeof(out_result->failure_reasons), "cycle counter unavailable; ");
+    }
+
+    if (out_result->failed || !out_result->is_stable) {
+        ngcc_log_error("[stability] completed with failing status: status=%s cases_run=%llu samples=%llu errors=%llu error_rate=%.6f%% memory_growth=%.6f%% throughput_cv=%.6f%% time_cv=%.6f%% reasons=%s",
+                       out_result->status,
+                       out_result->cases_run,
+                       out_result->sample_count,
+                       out_result->error_count,
+                       out_result->error_rate_percent,
+                       out_result->memory_growth_percent,
+                       out_result->throughput_cv_percent,
+                       out_result->time_cv_percent,
+                       out_result->failure_reasons);
     }
 
 

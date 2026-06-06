@@ -136,6 +136,34 @@ uint64_t ngcc_mem_peak_rss_bytes(void) {
 #endif
 }
 
+uint64_t ngcc_mem_vm_peak_bytes(void) {
+#ifdef __linux__
+    FILE *fp;
+    char line[256];
+    uint64_t vm_peak_kb = 0;
+
+    fp = fopen("/proc/self/status", "r");
+    if (fp == NULL) {
+        return 0;
+    }
+
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        if (strncmp(line, "VmPeak:", 7) == 0) {
+            unsigned long long val = 0;
+            if (sscanf(line + 7, " %llu", &val) == 1) {
+                vm_peak_kb = (uint64_t) val;
+            }
+            break;
+        }
+    }
+
+    fclose(fp);
+    return vm_peak_kb * 1024ULL;
+#else
+    return 0;
+#endif
+}
+
 uint64_t ngcc_mem_heap_bytes(void) {
 #if HAVE_MALLINFO2
     struct mallinfo2 mi = mallinfo2();

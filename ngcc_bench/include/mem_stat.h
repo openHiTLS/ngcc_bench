@@ -19,6 +19,7 @@ int ngcc_mem_analyze_static(const char *lib_path, ngcc_static_mem_t *out);
 
 uint64_t ngcc_mem_current_rss_bytes(void);
 uint64_t ngcc_mem_peak_rss_bytes(void);
+uint64_t ngcc_mem_vm_peak_bytes(void);
 uint64_t ngcc_mem_heap_bytes(void);
 
 #endif

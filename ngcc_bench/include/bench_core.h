@@ -20,6 +20,7 @@ typedef struct {
     double elapsed_ms;
     double ops_per_sec;
     double bytes_per_sec;
+    double mb_per_sec;
     double bytes_per_op;
     int cycles_available;
     double cycles_per_op;

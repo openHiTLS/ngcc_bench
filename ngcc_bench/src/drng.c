@@ -13,6 +13,7 @@ other purposes.
 #include <stdlib.h>
 #include <stdio.h>
 #include "drng.h"
+#include "ngcc_log.h"
 
 #define OUTLEN (32)
 #define DRNG_SUCCESS 0
@@ -216,7 +217,10 @@ static int SM3_df(unsigned char *input_string, unsigned long long input_string_l
         data_to_SM3 = (unsigned char *)malloc(data_to_SM3_len_bytes);
         if (NULL == data_to_SM3)
         {
-            fprintf(stderr, "ERROR: Memory allocation failed at %s, line %d. \n", __FILE__, __LINE__);
+            ngcc_log_error("[drng] memory allocation failed: file=%s line=%d bytes=%llu",
+                           __FILE__,
+                           __LINE__,
+                           data_to_SM3_len_bytes);
             return DRNG_MEMORY_ALLOCATION_FAILED;
         }
         data_to_SM3[0] = counter;
@@ -244,7 +248,10 @@ static int SM3_DRNG_Instantiate(DRNG_ctx *drng, const unsigned char *nonce, unsi
     seed_material = (unsigned char *)malloc(MAX_INT(nonce_len_bytes, SEEDLEN));
     if (NULL == seed_material)
     {
-        fprintf(stderr, "ERROR: Memory allocation failed at %s, line %d. \n", __FILE__, __LINE__);
+        ngcc_log_error("[drng] memory allocation failed: file=%s line=%d bytes=%llu",
+                       __FILE__,
+                       __LINE__,
+                       MAX_INT(nonce_len_bytes, SEEDLEN));
         return DRNG_MEMORY_ALLOCATION_FAILED;
     }
     memset(seed_material, 0, MAX_INT(nonce_len_bytes, SEEDLEN));

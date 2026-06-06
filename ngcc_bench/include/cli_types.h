@@ -90,6 +90,7 @@ typedef struct {
     ngcc_stability_result_t stability;
     uint64_t heap_baseline_bytes;
     uint64_t heap_peak_bytes;
+    uint64_t peak_memory_bytes;
     int kat_used;
     unsigned long long kat_total;
     unsigned long long kat_passed;

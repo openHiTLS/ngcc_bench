@@ -8,11 +8,16 @@
 
 #include "bench_core.h"
 #include "kat_parser.h"
+#include "ngcc_log.h"
 
 static int kex_has_supported_pass_count(const ngcc_api_t *api) {
     return api != NULL &&
            api->kex_passes_num >= NGCC_KEX_MIN_PASSES &&
            api->kex_passes_num <= NGCC_KEX_MAX_PASSES;
+}
+
+static int kex_is_valid_output_len(unsigned long long len, unsigned long long cap) {
+    return len != 0 && len <= cap;
 }
 
 /* Dynamic multi-pass KEX execution.
@@ -61,6 +66,10 @@ static int kex_run_once(const ngcc_api_t *api,
     int rc;
 
     if (!kex_has_supported_pass_count(api)) {
+        ngcc_log_error("[kex] unsupported pass count: passes=%llu min=%llu max=%llu",
+                       api != NULL ? api->kex_passes_num : 0ULL,
+                       NGCC_KEX_MIN_PASSES,
+                       NGCC_KEX_MAX_PASSES);
         return -1;
     }
 
@@ -72,18 +81,31 @@ static int kex_run_once(const ngcc_api_t *api,
     memset(stb, 0x5C, (size_t) stb_cap);
 
     if (api->kex_init_a(pka, &pka_len, ska, &ska_len, sta, &sta_len) != 0) {
+        ngcc_log_error("[kex] kex_init_a failed");
         return -1;
     }
     if (api->kex_init_b(pkb, &pkb_len, skb, &skb_len, stb, &stb_len) != 0) {
+        ngcc_log_error("[kex] kex_init_b failed");
         return -1;
     }
 
-    if (pka_len == 0 || pka_len > pk_cap ||
-        pkb_len == 0 || pkb_len > pk_cap ||
-        ska_len == 0 || ska_len > sk_cap ||
-        skb_len == 0 || skb_len > sk_cap ||
-        sta_len == 0 || sta_len > sta_cap ||
-        stb_len == 0 || stb_len > stb_cap) {
+    if (!kex_is_valid_output_len(pka_len, pk_cap) ||
+        !kex_is_valid_output_len(pkb_len, pk_cap) ||
+        !kex_is_valid_output_len(ska_len, sk_cap) ||
+        !kex_is_valid_output_len(skb_len, sk_cap) ||
+        !kex_is_valid_output_len(sta_len, sta_cap) ||
+        !kex_is_valid_output_len(stb_len, stb_cap)) {
+        ngcc_log_error("[kex] init returned invalid lengths: pka_len=%llu pkb_len=%llu pk_cap=%llu ska_len=%llu skb_len=%llu sk_cap=%llu sta_len=%llu sta_cap=%llu stb_len=%llu stb_cap=%llu",
+                       pka_len,
+                       pkb_len,
+                       pk_cap,
+                       ska_len,
+                       skb_len,
+                       sk_cap,
+                       sta_len,
+                       sta_cap,
+                       stb_len,
+                       stb_cap);
         return -1;
     }
 
@@ -93,9 +115,16 @@ static int kex_run_once(const ngcc_api_t *api,
     m_cur_len = msg_cap;
     rc = api->kex_pass1_fn(ska, ska_len, pkb, pkb_len, sta, &sta_len, m_cur, &m_cur_len);
     if (rc < 0) {
+        ngcc_log_error("[kex] pass1 failed: rc=%d", rc);
         return -1;
     }
-    if (m_cur_len == 0 || m_cur_len > msg_cap || sta_len == 0 || sta_len > sta_cap) {
+    if (!kex_is_valid_output_len(m_cur_len, msg_cap) ||
+        !kex_is_valid_output_len(sta_len, sta_cap)) {
+        ngcc_log_error("[kex] pass1 returned invalid lengths: msg_len=%llu msg_cap=%llu sta_len=%llu sta_cap=%llu",
+                       m_cur_len,
+                       msg_cap,
+                       sta_len,
+                       sta_cap);
         return -1;
     }
     ma = m_cur;
@@ -115,9 +144,17 @@ static int kex_run_once(const ngcc_api_t *api,
             rc = fn(skb, skb_len, pka, pka_len, m_prev, m_prev_len,
                     stb, &stb_len, m_cur, &m_cur_len);
             if (rc < 0) {
+                ngcc_log_error("[kex] pass%llu failed on B side: rc=%d prev_msg_len=%llu", p, rc, m_prev_len);
                 return -1;
             }
-            if (m_cur_len == 0 || m_cur_len > msg_cap || stb_len == 0 || stb_len > stb_cap) {
+            if (!kex_is_valid_output_len(m_cur_len, msg_cap) ||
+                !kex_is_valid_output_len(stb_len, stb_cap)) {
+                ngcc_log_error("[kex] pass%llu returned invalid B-side lengths: msg_len=%llu msg_cap=%llu stb_len=%llu stb_cap=%llu",
+                               p,
+                               m_cur_len,
+                               msg_cap,
+                               stb_len,
+                               stb_cap);
                 return -1;
             }
             mb = m_cur;
@@ -127,9 +164,17 @@ static int kex_run_once(const ngcc_api_t *api,
             rc = fn(ska, ska_len, pkb, pkb_len, m_prev, m_prev_len,
                     sta, &sta_len, m_cur, &m_cur_len);
             if (rc < 0) {
+                ngcc_log_error("[kex] pass%llu failed on A side: rc=%d prev_msg_len=%llu", p, rc, m_prev_len);
                 return -1;
             }
-            if (m_cur_len == 0 || m_cur_len > msg_cap || sta_len == 0 || sta_len > sta_cap) {
+            if (!kex_is_valid_output_len(m_cur_len, msg_cap) ||
+                !kex_is_valid_output_len(sta_len, sta_cap)) {
+                ngcc_log_error("[kex] pass%llu returned invalid A-side lengths: msg_len=%llu msg_cap=%llu sta_len=%llu sta_cap=%llu",
+                               p,
+                               m_cur_len,
+                               msg_cap,
+                               sta_len,
+                               sta_cap);
                 return -1;
             }
             ma = m_cur;
@@ -139,18 +184,37 @@ static int kex_run_once(const ngcc_api_t *api,
 
     memset(ssa, 0xA5, (size_t) ss_cap);
     if (api->kex_derive_ss_a(ska, ska_len, pkb, pkb_len, mb, mb_len, sta, sta_len, ssa, &ssa_len) != 0) {
+        ngcc_log_error("[kex] kex_derive_ss_a failed: ska_len=%llu pkb_len=%llu mb_len=%llu sta_len=%llu ss_cap=%llu",
+                       ska_len,
+                       pkb_len,
+                       mb_len,
+                       sta_len,
+                       ss_cap);
         return -1;
     }
     memset(ssb, 0x5A, (size_t) ss_cap);
     if (api->kex_derive_ss_b(skb, skb_len, pka, pka_len, ma, ma_len, stb, stb_len, ssb, &ssb_len) != 0) {
+        ngcc_log_error("[kex] kex_derive_ss_b failed: skb_len=%llu pka_len=%llu ma_len=%llu stb_len=%llu ss_cap=%llu",
+                       skb_len,
+                       pka_len,
+                       ma_len,
+                       stb_len,
+                       ss_cap);
         return -1;
     }
 
-    if (ssa_len == 0 || ssa_len > ss_cap || ssb_len == 0 || ssb_len > ss_cap || ssa_len != ssb_len) {
+    if (!kex_is_valid_output_len(ssa_len, ss_cap) ||
+        !kex_is_valid_output_len(ssb_len, ss_cap) ||
+        ssa_len != ssb_len) {
+        ngcc_log_error("[kex] derive returned invalid shared-secret lengths: ssa_len=%llu ssb_len=%llu ss_cap=%llu",
+                       ssa_len,
+                       ssb_len,
+                       ss_cap);
         return -1;
     }
 
     if (memcmp(ssa, ssb, (size_t) ssa_len) != 0) {
+        ngcc_log_error("[kex] shared-secret mismatch: ss_len=%llu", ssa_len);
         return -1;
     }
 
@@ -178,9 +242,14 @@ int ngcc_kex_correctness(const ngcc_api_t *api) {
     int rc = -1;
 
     if (api == NULL) {
+        ngcc_log_error("[kex][correctness] invalid arguments: api_null=1");
         return -1;
     }
     if (!kex_has_supported_pass_count(api)) {
+        ngcc_log_error("[kex][correctness] unsupported pass count: passes=%llu min=%llu max=%llu",
+                       api->kex_passes_num,
+                       NGCC_KEX_MIN_PASSES,
+                       NGCC_KEX_MAX_PASSES);
         return -1;
     }
 
@@ -193,6 +262,13 @@ int ngcc_kex_correctness(const ngcc_api_t *api) {
 
     if (!ngcc_is_valid_len(pk_cap) || !ngcc_is_valid_len(sk_cap) || !ngcc_is_valid_len(sta_cap) || !ngcc_is_valid_len(stb_cap) ||
         !ngcc_is_valid_len(msg_cap) || !ngcc_is_valid_len(ss_cap)) {
+        ngcc_log_error("[kex][correctness] invalid advertised caps: pk_cap=%llu sk_cap=%llu sta_cap=%llu stb_cap=%llu msg_cap=%llu ss_cap=%llu",
+                       pk_cap,
+                       sk_cap,
+                       sta_cap,
+                       stb_cap,
+                       msg_cap,
+                       ss_cap);
         return -1;
     }
 
@@ -209,6 +285,13 @@ int ngcc_kex_correctness(const ngcc_api_t *api) {
 
     if (pka == NULL || ska == NULL || sta == NULL || pkb == NULL || skb == NULL || stb == NULL ||
         msg_buf[0] == NULL || msg_buf[1] == NULL || ssa == NULL || ssb == NULL) {
+        ngcc_log_error("[kex][correctness] allocation failed: pk_cap=%llu sk_cap=%llu sta_cap=%llu stb_cap=%llu msg_cap=%llu ss_cap=%llu",
+                       pk_cap,
+                       sk_cap,
+                       sta_cap,
+                       stb_cap,
+                       msg_cap,
+                       ss_cap);
         goto out;
     }
 
@@ -229,6 +312,7 @@ int ngcc_kex_correctness(const ngcc_api_t *api) {
                      stb_cap,
                      msg_cap,
                      ss_cap) != 0) {
+        ngcc_log_error("[kex][correctness] KEX run failed: passes=%llu", api->kex_passes_num);
         goto out;
     }
 
@@ -271,9 +355,10 @@ static int kex_check_field_len(const char *field_name, const ngcc_kat_field_t *d
         return 0;
     }
     if ((unsigned long long) data_field->len != expected) {
-        fprintf(stderr, "[kex][kat] error: %s length mismatch: "
-                "file says %llu bytes, data has %zu bytes\n",
-                field_name, expected, data_field->len);
+        ngcc_log_error("[kex][kat] %s length mismatch: expected_bytes=%llu actual_bytes=%zu",
+                       field_name,
+                       expected,
+                       data_field->len);
         return -1;
     }
     return 0;
@@ -315,11 +400,19 @@ static int verify_kex_kat_vectors(const ngcc_api_t *api,
     ss_cap = api->kex_get_ss_len_bytes();
     if (!ngcc_is_valid_len(pk_cap) || !ngcc_is_valid_len(sk_cap) || !ngcc_is_valid_len(sta_cap) ||
         !ngcc_is_valid_len(stb_cap) || !ngcc_is_valid_len(msg_cap) || !ngcc_is_valid_len(ss_cap)) {
+        ngcc_log_error("[kex][kat] invalid advertised caps: pk_cap=%llu sk_cap=%llu sta_cap=%llu stb_cap=%llu msg_cap=%llu ss_cap=%llu",
+                       pk_cap,
+                       sk_cap,
+                       sta_cap,
+                       stb_cap,
+                       msg_cap,
+                       ss_cap);
         return -1;
     }
 
     ss_out = (unsigned char *) calloc(1, (size_t) ss_cap);
     if (ss_out == NULL) {
+        ngcc_log_error("[kex][kat] allocation failed: ss_cap=%llu", ss_cap);
         return -1;
     }
 
@@ -358,9 +451,10 @@ static int verify_kex_kat_vectors(const ngcc_api_t *api,
             if (pass_num_field != NULL && pass_num_field->data != NULL && pass_num_field->len > 0) {
                 unsigned long long kat_passes = kex_field_to_u64(pass_num_field);
                 if (kat_passes != 0 && kat_passes != api->kex_passes_num) {
-                    fprintf(stderr, "[kex][kat] error: Pass_Num mismatch: "
-                            "KAT says %llu, library says %llu\n",
-                            kat_passes, api->kex_passes_num);
+                    ngcc_log_error("[kex][kat] Pass_Num mismatch: vector=%zu kat_passes=%llu library_passes=%llu",
+                                   i,
+                                   kat_passes,
+                                   api->kex_passes_num);
                     (*io_total)++;
                     (*io_failed)++;
                     continue;
@@ -476,6 +570,18 @@ static int verify_kex_kat_vectors(const ngcc_api_t *api,
             if (ska->len > sk_cap || pkb->len > pk_cap ||
                 mb_field->len > msg_cap || sta_field->len > sta_cap ||
                 ss->len > ss_cap) {
+                ngcc_log_error("[kex][kat] A-side vector exceeds caps: vector=%zu ska_len=%zu sk_cap=%llu pkb_len=%zu pk_cap=%llu mb_len=%zu msg_cap=%llu sta_len=%zu sta_cap=%llu ss_len=%zu ss_cap=%llu",
+                               i,
+                               ska->len,
+                               sk_cap,
+                               pkb->len,
+                               pk_cap,
+                               mb_field->len,
+                               msg_cap,
+                               sta_field->len,
+                               sta_cap,
+                               ss->len,
+                               ss_cap);
                 case_failed = 1;
             } else if (api->kex_derive_ss_a((unsigned char *) ska->data,
                                             (unsigned long long) ska->len,
@@ -487,9 +593,20 @@ static int verify_kex_kat_vectors(const ngcc_api_t *api,
                                             (unsigned long long) sta_field->len,
                                             ss_out,
                                             &ss_out_len) != 0) {
+                ngcc_log_error("[kex][kat] kex_derive_ss_a failed: vector=%zu ska_len=%zu pkb_len=%zu mb_len=%zu sta_len=%zu ss_cap=%llu",
+                               i,
+                               ska->len,
+                               pkb->len,
+                               mb_field->len,
+                               sta_field->len,
+                               ss_cap);
                 case_failed = 1;
             } else if (ss_out_len != (unsigned long long) ss->len ||
                        memcmp(ss_out, ss->data, ss->len) != 0) {
+                ngcc_log_error("[kex][kat] A-side shared-secret mismatch: vector=%zu expected_len=%zu actual_len=%llu",
+                               i,
+                               ss->len,
+                               ss_out_len);
                 case_failed = 1;
             }
         }
@@ -500,6 +617,18 @@ static int verify_kex_kat_vectors(const ngcc_api_t *api,
             if (skb->len > sk_cap || pka->len > pk_cap ||
                 ma_field->len > msg_cap || stb_field->len > stb_cap ||
                 ss->len > ss_cap) {
+                ngcc_log_error("[kex][kat] B-side vector exceeds caps: vector=%zu skb_len=%zu sk_cap=%llu pka_len=%zu pk_cap=%llu ma_len=%zu msg_cap=%llu stb_len=%zu stb_cap=%llu ss_len=%zu ss_cap=%llu",
+                               i,
+                               skb->len,
+                               sk_cap,
+                               pka->len,
+                               pk_cap,
+                               ma_field->len,
+                               msg_cap,
+                               stb_field->len,
+                               stb_cap,
+                               ss->len,
+                               ss_cap);
                 case_failed = 1;
             } else if (api->kex_derive_ss_b((unsigned char *) skb->data,
                                             (unsigned long long) skb->len,
@@ -511,9 +640,20 @@ static int verify_kex_kat_vectors(const ngcc_api_t *api,
                                             (unsigned long long) stb_field->len,
                                             ss_out,
                                             &ss_out_len) != 0) {
+                ngcc_log_error("[kex][kat] kex_derive_ss_b failed: vector=%zu skb_len=%zu pka_len=%zu ma_len=%zu stb_len=%zu ss_cap=%llu",
+                               i,
+                               skb->len,
+                               pka->len,
+                               ma_field->len,
+                               stb_field->len,
+                               ss_cap);
                 case_failed = 1;
             } else if (ss_out_len != (unsigned long long) ss->len ||
                        memcmp(ss_out, ss->data, ss->len) != 0) {
+                ngcc_log_error("[kex][kat] B-side shared-secret mismatch: vector=%zu expected_len=%zu actual_len=%llu",
+                               i,
+                               ss->len,
+                               ss_out_len);
                 case_failed = 1;
             }
         }
@@ -543,20 +683,27 @@ int ngcc_kex_correctness_kat_file(const ngcc_api_t *api,
     int rc = -1;
 
     if (api == NULL || kat_path == NULL) {
+        ngcc_log_error("[kex][kat] invalid arguments: api_null=%d kat_path_null=%d",
+                       api == NULL,
+                       kat_path == NULL);
         return -1;
     }
     if (!kex_has_supported_pass_count(api)) {
+        ngcc_log_error("[kex][kat] unsupported pass count: passes=%llu min=%llu max=%llu",
+                       api->kex_passes_num,
+                       NGCC_KEX_MIN_PASSES,
+                       NGCC_KEX_MAX_PASSES);
         return -1;
     }
 
     if (!path_is_directory_kex(kat_path)) {
-        fprintf(stderr, "[kex][kat] error: --kat path is not a directory: %s\n", kat_path);
+        ngcc_log_error("[kex][kat] --kat path is not a directory: %s", kat_path);
         return -1;
     }
 
     dir = opendir(kat_path);
     if (dir == NULL) {
-        fprintf(stderr, "[kex][kat] error: cannot open directory: %s\n", kat_path);
+        ngcc_log_error("[kex][kat] cannot open directory: %s", kat_path);
         return -1;
     }
 
@@ -570,6 +717,7 @@ int ngcc_kex_correctness_kat_file(const ngcc_api_t *api,
         }
         len = snprintf(file_path, sizeof(file_path), "%s/%s", kat_path, entry->d_name);
         if (len < 0 || len >= (int) sizeof(file_path)) {
+            ngcc_log_error("[kex][kat] KAT file path too long: dir=%s file=%s", kat_path, entry->d_name);
             continue;
         }
         if (path_is_directory_kex(file_path)) {
@@ -582,26 +730,30 @@ int ngcc_kex_correctness_kat_file(const ngcc_api_t *api,
 
         memset(&kat, 0, sizeof(kat));
         if (ngcc_kat_parse_file(file_path, &kat) != 0) {
-            fprintf(stderr, "[kex][kat] error: failed to parse %s\n", entry->d_name);
+            ngcc_log_error("[kex][kat] failed to parse file: %s", file_path);
             closedir(dir);
             goto done;
         }
 
         file_count++;
-        printf("[kex][kat] testing %s (%zu vectors) ...\n", entry->d_name, kat.count);
         verify_kex_kat_vectors(api, &kat, &total, &passed, &failed);
-        printf("[kex][kat] %s: total=%llu passed=%llu failed=%llu\n",
-               entry->d_name, total, passed, failed);
         ngcc_kat_free(&kat);
     }
     closedir(dir);
 
     if (file_count == 0) {
-        fprintf(stderr, "[kex][kat] error: no KAT_KEX_ files found in: %s\n", kat_path);
+        ngcc_log_error("[kex][kat] no KAT_KEX_ files found in: %s", kat_path);
         goto done;
     }
 
     rc = (total > 0 && failed == 0) ? 0 : -1;
+    if (rc != 0) {
+        ngcc_log_error("[kex][kat] verification failed: total=%llu passed=%llu failed=%llu dir=%s",
+                       total,
+                       passed,
+                       failed,
+                       kat_path);
+    }
 
 done:
     if (out_total != NULL) {
@@ -635,17 +787,47 @@ typedef struct {
 static int kex_derive_ss_a_op(void *ctx_ptr) {
     kex_derive_ctx_t *c = (kex_derive_ctx_t *) ctx_ptr;
     unsigned long long ss_len = c->ss_cap;
-    return c->api->kex_derive_ss_a(c->ska, c->ska_len, c->pkb, c->pkb_len,
-                                   c->mb, c->mb_len, c->sta, c->sta_len,
-                                   c->ss, &ss_len);
+    if (c->api->kex_derive_ss_a(c->ska, c->ska_len, c->pkb, c->pkb_len,
+                                c->mb, c->mb_len, c->sta, c->sta_len,
+                                c->ss, &ss_len) != 0) {
+        ngcc_log_error("[kex][performance][derive_a] kex_derive_ss_a failed: ska_len=%llu pkb_len=%llu mb_len=%llu sta_len=%llu ss_cap=%llu",
+                       c->ska_len,
+                       c->pkb_len,
+                       c->mb_len,
+                       c->sta_len,
+                       c->ss_cap);
+        return -1;
+    }
+    if (!kex_is_valid_output_len(ss_len, c->ss_cap)) {
+        ngcc_log_error("[kex][performance][derive_a] invalid shared-secret length: ss_len=%llu ss_cap=%llu",
+                       ss_len,
+                       c->ss_cap);
+        return -1;
+    }
+    return 0;
 }
 
 static int kex_derive_ss_b_op(void *ctx_ptr) {
     kex_derive_ctx_t *c = (kex_derive_ctx_t *) ctx_ptr;
     unsigned long long ss_len = c->ss_cap;
-    return c->api->kex_derive_ss_b(c->skb, c->skb_len, c->pka, c->pka_len,
-                                   c->ma, c->ma_len, c->stb, c->stb_len,
-                                   c->ss, &ss_len);
+    if (c->api->kex_derive_ss_b(c->skb, c->skb_len, c->pka, c->pka_len,
+                                c->ma, c->ma_len, c->stb, c->stb_len,
+                                c->ss, &ss_len) != 0) {
+        ngcc_log_error("[kex][performance][derive_b] kex_derive_ss_b failed: skb_len=%llu pka_len=%llu ma_len=%llu stb_len=%llu ss_cap=%llu",
+                       c->skb_len,
+                       c->pka_len,
+                       c->ma_len,
+                       c->stb_len,
+                       c->ss_cap);
+        return -1;
+    }
+    if (!kex_is_valid_output_len(ss_len, c->ss_cap)) {
+        ngcc_log_error("[kex][performance][derive_b] invalid shared-secret length: ss_len=%llu ss_cap=%llu",
+                       ss_len,
+                       c->ss_cap);
+        return -1;
+    }
+    return 0;
 }
 
 /* Run the full KEX protocol once to obtain intermediate state for derive_ss,
@@ -667,9 +849,18 @@ int ngcc_kex_derive_ss_performance(const ngcc_api_t *api,
     int rc = -1;
 
     if (api == NULL || cfg == NULL || out_a == NULL || out_b == NULL) {
+        ngcc_log_error("[kex][performance] invalid arguments: api_null=%d cfg_null=%d out_a_null=%d out_b_null=%d",
+                       api == NULL,
+                       cfg == NULL,
+                       out_a == NULL,
+                       out_b == NULL);
         return -1;
     }
     if (!kex_has_supported_pass_count(api)) {
+        ngcc_log_error("[kex][performance] unsupported pass count: passes=%llu min=%llu max=%llu",
+                       api->kex_passes_num,
+                       NGCC_KEX_MIN_PASSES,
+                       NGCC_KEX_MAX_PASSES);
         return -1;
     }
 
@@ -683,6 +874,13 @@ int ngcc_kex_derive_ss_performance(const ngcc_api_t *api,
 
     if (!ngcc_is_valid_len(pk_cap) || !ngcc_is_valid_len(sk_cap) || !ngcc_is_valid_len(sta_cap) ||
         !ngcc_is_valid_len(stb_cap) || !ngcc_is_valid_len(msg_cap) || !ngcc_is_valid_len(ss_cap)) {
+        ngcc_log_error("[kex][performance] invalid advertised caps: pk_cap=%llu sk_cap=%llu sta_cap=%llu stb_cap=%llu msg_cap=%llu ss_cap=%llu",
+                       pk_cap,
+                       sk_cap,
+                       sta_cap,
+                       stb_cap,
+                       msg_cap,
+                       ss_cap);
         return -1;
     }
 
@@ -698,6 +896,13 @@ int ngcc_kex_derive_ss_performance(const ngcc_api_t *api,
     ssb = (unsigned char *) calloc(1, (size_t) ss_cap);
     if (pka == NULL || ska == NULL || sta == NULL || pkb == NULL || skb == NULL ||
         stb == NULL || msg_buf[0] == NULL || msg_buf[1] == NULL || ssa == NULL || ssb == NULL) {
+        ngcc_log_error("[kex][performance] allocation failed: pk_cap=%llu sk_cap=%llu sta_cap=%llu stb_cap=%llu msg_cap=%llu ss_cap=%llu",
+                       pk_cap,
+                       sk_cap,
+                       sta_cap,
+                       stb_cap,
+                       msg_cap,
+                       ss_cap);
         goto cleanup;
     }
 
@@ -711,13 +916,50 @@ int ngcc_kex_derive_ss_performance(const ngcc_api_t *api,
         pka_len = pk_cap; ska_len = sk_cap; sta_len = sta_cap;
         pkb_len = pk_cap; skb_len = sk_cap; stb_len = stb_cap;
 
-        if (api->kex_init_a(pka, &pka_len, ska, &ska_len, sta, &sta_len) != 0) { goto cleanup; }
-        if (api->kex_init_b(pkb, &pkb_len, skb, &skb_len, stb, &stb_len) != 0) { goto cleanup; }
+        if (api->kex_init_a(pka, &pka_len, ska, &ska_len, sta, &sta_len) != 0) {
+            ngcc_log_error("[kex][performance] setup kex_init_a failed");
+            goto cleanup;
+        }
+        if (api->kex_init_b(pkb, &pkb_len, skb, &skb_len, stb, &stb_len) != 0) {
+            ngcc_log_error("[kex][performance] setup kex_init_b failed");
+            goto cleanup;
+        }
+        if (!kex_is_valid_output_len(pka_len, pk_cap) ||
+            !kex_is_valid_output_len(pkb_len, pk_cap) ||
+            !kex_is_valid_output_len(ska_len, sk_cap) ||
+            !kex_is_valid_output_len(skb_len, sk_cap) ||
+            !kex_is_valid_output_len(sta_len, sta_cap) ||
+            !kex_is_valid_output_len(stb_len, stb_cap)) {
+            ngcc_log_error("[kex][performance] setup init returned invalid lengths: pka_len=%llu pkb_len=%llu pk_cap=%llu ska_len=%llu skb_len=%llu sk_cap=%llu sta_len=%llu sta_cap=%llu stb_len=%llu stb_cap=%llu",
+                           pka_len,
+                           pkb_len,
+                           pk_cap,
+                           ska_len,
+                           skb_len,
+                           sk_cap,
+                           sta_len,
+                           sta_cap,
+                           stb_len,
+                           stb_cap);
+            goto cleanup;
+        }
 
         m_cur = msg_buf[0];
         m_cur_len = msg_cap;
         pass_rc = api->kex_pass1_fn(ska, ska_len, pkb, pkb_len, sta, &sta_len, m_cur, &m_cur_len);
-        if (pass_rc < 0) { goto cleanup; }
+        if (pass_rc < 0) {
+            ngcc_log_error("[kex][performance] setup pass1 failed: rc=%d", pass_rc);
+            goto cleanup;
+        }
+        if (!kex_is_valid_output_len(m_cur_len, msg_cap) ||
+            !kex_is_valid_output_len(sta_len, sta_cap)) {
+            ngcc_log_error("[kex][performance] setup pass1 returned invalid lengths: msg_len=%llu msg_cap=%llu sta_len=%llu sta_cap=%llu",
+                           m_cur_len,
+                           msg_cap,
+                           sta_len,
+                           sta_cap);
+            goto cleanup;
+        }
         ma = m_cur; ma_len = m_cur_len;
 
         for (p = 2; p <= passes && pass_rc == 0; ++p) {
@@ -728,14 +970,58 @@ int ngcc_kex_derive_ss_performance(const ngcc_api_t *api,
             if (p % 2 == 0) {
                 pass_rc = fn(skb, skb_len, pka, pka_len, m_prev, m_prev_len,
                              stb, &stb_len, m_cur, &m_cur_len);
-                if (pass_rc < 0) { goto cleanup; }
+                if (pass_rc < 0) {
+                    ngcc_log_error("[kex][performance] setup pass%llu failed on B side: rc=%d prev_msg_len=%llu",
+                                   p,
+                                   pass_rc,
+                                   m_prev_len);
+                    goto cleanup;
+                }
+                if (!kex_is_valid_output_len(m_cur_len, msg_cap) ||
+                    !kex_is_valid_output_len(stb_len, stb_cap)) {
+                    ngcc_log_error("[kex][performance] setup pass%llu returned invalid B-side lengths: msg_len=%llu msg_cap=%llu stb_len=%llu stb_cap=%llu",
+                                   p,
+                                   m_cur_len,
+                                   msg_cap,
+                                   stb_len,
+                                   stb_cap);
+                    goto cleanup;
+                }
                 mb = m_cur; mb_len = m_cur_len;
             } else {
                 pass_rc = fn(ska, ska_len, pkb, pkb_len, m_prev, m_prev_len,
                              sta, &sta_len, m_cur, &m_cur_len);
-                if (pass_rc < 0) { goto cleanup; }
+                if (pass_rc < 0) {
+                    ngcc_log_error("[kex][performance] setup pass%llu failed on A side: rc=%d prev_msg_len=%llu",
+                                   p,
+                                   pass_rc,
+                                   m_prev_len);
+                    goto cleanup;
+                }
+                if (!kex_is_valid_output_len(m_cur_len, msg_cap) ||
+                    !kex_is_valid_output_len(sta_len, sta_cap)) {
+                    ngcc_log_error("[kex][performance] setup pass%llu returned invalid A-side lengths: msg_len=%llu msg_cap=%llu sta_len=%llu sta_cap=%llu",
+                                   p,
+                                   m_cur_len,
+                                   msg_cap,
+                                   sta_len,
+                                   sta_cap);
+                    goto cleanup;
+                }
                 ma = m_cur; ma_len = m_cur_len;
             }
+        }
+        if (ma == NULL || mb == NULL ||
+            !kex_is_valid_output_len(ma_len, msg_cap) ||
+            !kex_is_valid_output_len(mb_len, msg_cap)) {
+            ngcc_log_error("[kex][performance] setup missing final messages or invalid lengths: ma_null=%d mb_null=%d ma_len=%llu mb_len=%llu msg_cap=%llu passes=%llu",
+                           ma == NULL,
+                           mb == NULL,
+                           ma_len,
+                           mb_len,
+                           msg_cap,
+                           passes);
+            goto cleanup;
         }
     }
 
@@ -753,6 +1039,10 @@ int ngcc_kex_derive_ss_performance(const ngcc_api_t *api,
         ctx_a.mb  = mb;   ctx_a.mb_len  = mb_len;
         ctx_a.ss  = ssa;  ctx_a.ss_cap  = ss_cap;
         if (ngcc_run_performance_op(&local_cfg, kex_derive_ss_a_op, &ctx_a, out_a) != 0) {
+            ngcc_log_error("[kex][performance][derive_a] benchmark failed: iterations=%llu mb_len=%llu ss_cap=%llu",
+                           cfg->iterations,
+                           mb_len,
+                           ss_cap);
             goto cleanup;
         }
     }
@@ -768,6 +1058,10 @@ int ngcc_kex_derive_ss_performance(const ngcc_api_t *api,
         ctx_b.ma  = ma;   ctx_b.ma_len  = ma_len;
         ctx_b.ss  = ssb;  ctx_b.ss_cap  = ss_cap;
         if (ngcc_run_performance_op(&local_cfg, kex_derive_ss_b_op, &ctx_b, out_b) != 0) {
+            ngcc_log_error("[kex][performance][derive_b] benchmark failed: iterations=%llu ma_len=%llu ss_cap=%llu",
+                           cfg->iterations,
+                           ma_len,
+                           ss_cap);
             goto cleanup;
         }
     }

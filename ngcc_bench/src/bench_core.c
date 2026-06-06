@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "cycle_counter.h"
+#include "ngcc_log.h"
 #include "stats_util.h"
 
 static int g_cycles_warning_printed = 0;
@@ -121,7 +122,15 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
     int keep_cycle_samples = 0;
     int rc = -1;
 
-    if (cfg == NULL || op == NULL || out_result == NULL || cfg->iterations == 0) {
+    if (cfg == NULL || op == NULL || out_result == NULL) {
+        ngcc_log_error("[performance] invalid benchmark arguments: cfg_null=%d op_null=%d out_null=%d",
+                       cfg == NULL,
+                       op == NULL,
+                       out_result == NULL);
+        return -1;
+    }
+    if (cfg->iterations == 0) {
+        ngcc_log_error("[performance] invalid benchmark iterations: 0");
         return -1;
     }
 
@@ -133,6 +142,9 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
 
     for (i = 0; i < warmup; ++i) {
         if (op(op_ctx) != 0) {
+            ngcc_log_error("[performance] warmup operation failed: iteration=%llu/%llu",
+                           i + 1ULL,
+                           warmup);
             return -1;
         }
     }
@@ -143,7 +155,7 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
 
     if (cycle_counter_open(&counter, 1) != 0) {
         if (!g_cycles_warning_printed) {
-            fprintf(stderr, "[WARN][bench] cycle counter unavailable, falling back to time-only metrics\n");
+            ngcc_log_warning("[performance] cycle counter unavailable, falling back to time-only metrics");
             g_cycles_warning_printed = 1;
         }
         counter.source = CYCLE_SOURCE_NONE;
@@ -172,6 +184,7 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
     }
 
     if (ngcc_monotonic_clock_gettime(&ts_total_start) != 0) {
+        ngcc_log_error("[performance] failed to read total start clock");
         goto cleanup;
     }
 
@@ -182,18 +195,27 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
         double iter_time_ms;
 
         if (ngcc_monotonic_clock_gettime(&ts_iter_start) != 0) {
+            ngcc_log_error("[performance] failed to read iteration start clock: iteration=%llu/%llu",
+                           i + 1ULL,
+                           cfg->iterations);
             goto cleanup;
         }
 
         iter_cycle_start = cycle_counter_begin(&counter);
 
         if (op(op_ctx) != 0) {
+            ngcc_log_error("[performance] measured operation failed: iteration=%llu/%llu",
+                           i + 1ULL,
+                           cfg->iterations);
             goto cleanup;
         }
 
         iter_cycles = cycle_counter_end(&counter, iter_cycle_start);
 
         if (ngcc_monotonic_clock_gettime(&ts_iter_end) != 0) {
+            ngcc_log_error("[performance] failed to read iteration end clock: iteration=%llu/%llu",
+                           i + 1ULL,
+                           cfg->iterations);
             goto cleanup;
         }
 
@@ -213,6 +235,7 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
     }
 
     if (ngcc_monotonic_clock_gettime(&ts_total_end) != 0) {
+        ngcc_log_error("[performance] failed to read total end clock");
         goto cleanup;
     }
 
@@ -226,6 +249,7 @@ int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
     if (cfg->bytes_per_op > 0 && out_result->elapsed_ms > 0.0) {
         /* bytes_per_sec = iterations * bytes_per_op / (elapsed_ms / 1000) */
         out_result->bytes_per_sec = ((double) cfg->iterations * (double) cfg->bytes_per_op * 1000.0) / out_result->elapsed_ms;
+        out_result->mb_per_sec = out_result->bytes_per_sec / 1000000.0;
     }
 
     /* ===== 时间统计: 均值 / 标准差 / 变异系数 / 中位数 ===== */

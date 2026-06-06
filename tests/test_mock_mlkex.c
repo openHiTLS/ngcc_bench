@@ -73,19 +73,19 @@ int main(int argc, char **argv) {
 
     {
         char *const cmd[] = {argv[1], "--lib", argv[2], "--test", "kex", "--mode", "correctness", NULL};
-        CHECK(run_expect(cmd, "[kex][correctness] PASS", NULL, NULL) == 0, "correctness failed");
+        CHECK(run_expect(cmd, "[correctness] BEGIN", "[correctness] END status=PASS", NULL) == 0, "correctness failed");
     }
     {
         char *const cmd[] = {
             argv[1], "--lib", argv[2], "--test", "kex", "--mode", "performance",
             "--iterations", "1000", "--cycles", "off", NULL
         };
-        CHECK(run_expect(cmd, "[kex][performance] ops=", "[kex][performance][throughput]", "[kex][performance][time]") == 0,
+        CHECK(run_expect(cmd, "[performance] BEGIN", "[performance] END status=PASS", NULL) == 0,
               "performance failed");
     }
     {
         char *const cmd[] = {argv[1], "--lib", argv[2], "--test", "kex", "--mode", "correctness", "--kat", kat_dir, NULL};
-        CHECK(run_expect(cmd, "[kex][correctness] PASS total=1 passed=1 failed=0 source=kat", NULL, NULL) == 0,
+        CHECK(run_expect(cmd, "[correctness] BEGIN", "[correctness] END status=PASS", NULL) == 0,
               "kat correctness failed");
     }
 

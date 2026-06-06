@@ -349,104 +349,72 @@ OUTPUT = F5D3D58503B9699DE785895A96FDBAAF
 
 ---
 
-## 4. 性能测试方案 (ARMv8)
+## 4. 性能测试方案 (当前实现)
 
-### 4.1 ARMv8 计时方案对比
+### 4.1 周期与时间计量方案对比
 
 | 方案 | 测量内容 | 精度 | 开销 | 适用场景 |
 |-----|---------|------|------|---------|
-| **CNTVCT_EL0** | 虚拟计数器 | 纳秒级 | 极低 | 时间测量 |
-| **PMCCNTR_EL0** | PMU周期计数 | 周期级 | 极低 | 精确CPU周期 ✅ |
-| **perf_event_open** | CPU周期数 | 周期级 | 低 | 跨平台周期测量 |
-| **clock_gettime** | 墙钟时间 | 纳秒级 | 极低 | 吞吐量计算 |
+| **perf_event_open** | `PERF_COUNT_HW_CPU_CYCLES` | 周期级 | 低 | Linux 首选周期来源，由内核配置 PMU |
+| **x86_64 TSC** | `lfence + rdtsc` | 周期级 | 极低 | Linux perf 不可用时的 x86_64 回退 |
+| **ARMv8 PMCCNTR_EL0** | PMU cycle counter | 周期级 | 极低 | AArch64 最后回退，要求内核/固件开放 EL0 PMU 访问 |
+| **clock_gettime(CLOCK_MONOTONIC)** | 单调时间 | 纳秒级 | 低 | 吞吐量、耗时统计；周期不可用时仍可使用 |
 
 ### 4.2 推荐策略
 
 > [!IMPORTANT]
-> **ARMv8 推荐使用 PMCCNTR_EL0 + clock_gettime 双计时方案**：
-> - **PMCCNTR_EL0**: 读取PMU周期计数器，精确CPU周期，开销极低（需内核模块启用用户态访问）
-> - **clock_gettime(CLOCK_MONOTONIC)**: 测量墙钟时间，纳秒精度，用于吞吐量计算
-> - **单次循环同时测量**: 避免重复执行算法，确保测试准确性
-> - 使用 **Welford 算法** 在线计算均值和方差，避免存储所有样本
+> **当前实现使用 `cycle_counter_open()` 自动选择周期来源，同时始终使用 `clock_gettime(CLOCK_MONOTONIC)` 统计时间**：
+> - Linux 下优先 `perf_event_open(PERF_COUNT_HW_CPU_CYCLES)`，由内核配置和读取 PMU 事件。
+> - 如果 Linux perf 不可用，`x86_64` 回退到 `lfence + rdtsc`。
+> - 如果 Linux perf 不可用且平台是 `aarch64`，代码会尝试 ARMv8 PMU direct path。
+> - 如果周期来源不可用，性能/稳定性测试应降级为 time-only 指标。
+> - 单次迭代同时测量周期和时间，避免为了不同指标重复执行算法。
 
-**ARMv8 计数器说明**：
-| 寄存器 | 说明 | 访问权限 | 注意事项 |
-|-------|------|---------|---------|
-| `CNTVCT_EL0` | 虚拟计时器计数值，频率由 `CNTFRQ_EL0` 指定 | 用户态可读 | 固定频率（通常19.2MHz），非CPU周期 |
-| `PMCCNTR_EL0` | PMU周期计数器，精确CPU周期 | 需要内核配置 | 真实CPU周期，但需特权设置 |
+**当前周期来源优先级**：
 
-**重要区分**：
-- `CNTVCT_EL0` 是**固定频率计数器**（如19.2MHz），需转换为时间
-- `PMCCNTR_EL0` 是**CPU周期计数器**，直接测量真实CPU周期
-- 本方案使用 `PMCCNTR_EL0` 测量真实CPU周期，与SUPERCOP/liboqs对齐
+1. `CYCLE_SOURCE_PERF`: Linux `syscall(__NR_perf_event_open, ...)`
+2. `CYCLE_SOURCE_TSC`: `x86_64` `lfence + rdtsc`
+3. `CYCLE_SOURCE_ARMV8_PMU`: AArch64 `PMCCNTR_EL0`
+4. `CYCLE_SOURCE_NONE`: 周期不可用，仅输出时间/吞吐指标
+
+**ARMv8 direct PMU 注意事项**：
 
 > [!WARNING]
-> **PMCCNTR_EL0 权限要求**：
-> - 需要加载内核模块启用用户态访问
-> - 推荐使用：https://github.com/mupq/pqax#enable-access-to-performance-counters
-> - 建议锁定CPU频率避免DVFS影响：`echo performance > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor`
+> 当前 `armv8_init_pmu()` 会执行 `MSR PMCR_EL0` / `MSR PMCNTENSET_EL0`，随后读取 `PMCCNTR_EL0`。这不是普通用户态权限；很多 Linux/容器环境没有开放 EL0 PMU 访问时会触发非法指令。生产/CI 场景应优先依赖 `perf_event_open`，直接 PMU 路径只能作为受控平台上的回退。
 
-### 4.3 ARMv8 周期计数器实现
+### 4.3 当前周期计数器实现
 
 ```c
-// tests/utils/armv8_cycle.h
+// ngcc_bench/src/cycle_counter.c 的实际策略
 
-#ifndef ARMV8_CYCLE_H
-#define ARMV8_CYCLE_H
+int cycle_counter_open(cycle_counter_t *counter, int cycles_enabled) {
+    counter->source = CYCLE_SOURCE_NONE;
+    counter->perf_fd = -1;
 
-#include <stdint.h>
+    if (!cycles_enabled) {
+        return 0;
+    }
 
-/**
- * 初始化 PMU 周期计数器
- * 必须在首次读取 PMCCNTR_EL0 前调用
- * 注意：需要内核模块支持用户态访问
- */
-static inline void armv8_init_pmu(void) {
-    // 启用 PMU
-    __asm__ volatile("MSR PMCR_EL0, %0" :: "r"(1));
-    // 启用周期计数器
-    __asm__ volatile("MSR PMCNTENSET_EL0, %0" :: "r"(0x80000000));
-}
-
-/**
- * 读取 ARMv8 虚拟计数器 (CNTVCT_EL0)
- * 固定频率计数器，用于时间测量（备用方案）
- */
-static inline uint64_t armv8_read_cntvct(void) {
-    uint64_t val;
-    __asm__ volatile("mrs %0, cntvct_el0" : "=r"(val));
-    return val;
-}
-
-/**
- * 读取计数器频率 (CNTFRQ_EL0)
- * 用于将CNTVCT计数值转换为时间
- */
-static inline uint64_t armv8_read_cntfrq(void) {
-    uint64_t val;
-    __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(val));
-    return val;
-}
-
-/**
- * 读取 PMU 周期计数器 (PMCCNTR_EL0)
- * 注意: 需要内核启用用户态访问权限
- */
-static inline uint64_t armv8_read_pmccntr(void) {
-    uint64_t val;
-    __asm__ volatile("mrs %0, pmccntr_el0" : "=r"(val));
-    return val;
-}
-
-/**
- * 内存屏障 - 确保测量准确性
- */
-static inline void armv8_memory_barrier(void) {
-    __asm__ volatile("dsb sy" ::: "memory");
-    __asm__ volatile("isb" ::: "memory");
-}
-
+#ifdef __linux__
+    /* 首选 Linux perf_event_open，由内核配置 PERF_COUNT_HW_CPU_CYCLES。 */
+    counter->perf_fd = syscall(__NR_perf_event_open, &pe, 0, -1, -1, 0);
+    if (counter->perf_fd >= 0) {
+        counter->source = CYCLE_SOURCE_PERF;
+        return 0;
+    }
 #endif
+
+#if defined(__x86_64__)
+    counter->source = CYCLE_SOURCE_TSC;
+    return 0;
+#elif defined(__aarch64__)
+    armv8_init_pmu();  /* 需要内核/固件允许 EL0 PMU 访问。 */
+    counter->source = CYCLE_SOURCE_ARMV8_PMU;
+    return 0;
+#else
+    return -1;
+#endif
+}
 ```
 
 ### 4.4 性能测试数据结构
@@ -470,7 +438,7 @@ typedef struct {
     uint64_t warmup;                // 预热次数
     size_t   input_size;            // 输入数据大小 (bytes)
 
-    // CPU周期统计 (PMCCNTR_EL0 真实周期)
+    // CPU周期统计（来源可能是 perf_event_open、x86_64 TSC 或 ARMv8 PMU）
     uint64_t counts_total;          // 总计数值
     double   counts_mean;           // 平均计数值
     double   counts_stddev;         // 标准差
@@ -495,7 +463,7 @@ typedef struct {
 
     // 计数器信息
     uint64_t cpu_freq_mhz;          // CPU频率 (MHz)
-    char     counter_type[32];      // 计数器类型 "PMCCNTR_EL0"
+    char     counter_type[32];      // 计数器类型，如 "perf_event_open"、"rdtsc"、"armv8_pmu"
 } PerfResult;
 
 /**
@@ -585,129 +553,57 @@ static inline double welford_mean(const WelfordState* state) {
 ### 4.6 完整性能测试实现
 
 ```c
-// tests/src/performance_test.c
+// ngcc_bench/src/bench_core.c 的当前结构（简化）
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/time.h>
-#include "armv8_cycle.h"
-#include "welford.h"
-#include "perf_types.h"
+int ngcc_run_performance_op(const ngcc_perf_config_t *cfg,
+                            ngcc_operation_fn op,
+                            void *op_ctx,
+                            ngcc_perf_result_t *out_result) {
+    cycle_counter_t counter;
+    running_stats_t time_stats;
+    running_stats_t cycle_stats;
+    unsigned long long warmup = cfg->iterations / 100;
 
-/**
- * 运行性能测试 (ARMv8 优化版本)
- *
- * 特点:
- * 1. 使用 PMCCNTR_EL0 读取真实CPU周期，无系统调用开销
- * 2. 使用 clock_gettime(CLOCK_MONOTONIC) 测量高精度时间
- * 3. 单次循环同时测量周期和时间，避免重复执行算法
- * 4. 使用 Welford 算法在线计算统计值，节省内存
- */
-int run_performance_test(AlgorithmContext* ctx,
-                         uint64_t iterations,
-                         uint64_t warmup,
-                         PerfResult* result) {
-
-    // 初始化PMU
-    armv8_init_pmu();
-
-    // 初始化结果
-    result->iterations = iterations;
-    result->warmup = warmup;
-    result->input_size = ctx->input_size;
-    result->cpu_freq_mhz = 0;  // 可选：读取CPU频率
-    strcpy(result->counter_type, "PMCCNTR_EL0");
-
-    // Welford 状态
-    WelfordState counts_stat, time_stat;
-    welford_init(&counts_stat);
-    welford_init(&time_stat);
-
-    printf("\n正在执行预热 (%lu 次)...\n", warmup);
-
-    // === 预热阶段 ===
-    for (uint64_t i = 0; i < warmup; i++) {
-        algorithm_execute(ctx->input, ctx->input_size,
-                         ctx->output, &ctx->output_size);
+    if (warmup < 10) {
+        warmup = 10;
     }
 
-    printf("正在执行性能测试...\n");
+    for (unsigned long long i = 0; i < warmup; ++i) {
+        if (op(op_ctx) != 0) {
+            return -1;
+        }
+    }
 
-    // === 测试阶段：单次循环同时测量计数器和时间 ===
-    for (uint64_t i = 0; i < iterations; i++) {
-        // 显示进度 (每10%更新一次)
-        if (i % (iterations / 10) == 0) {
-            int progress = (i * 100) / iterations;
-            printf("\r[");
-            for (int j = 0; j < 40; j++) {
-                printf(j < progress * 40 / 100 ? "█" : " ");
-            }
-            printf("] %3d%%", progress);
-            fflush(stdout);
+    if (cycle_counter_open(&counter, cycles_enabled) != 0) {
+        counter.source = CYCLE_SOURCE_NONE;  // fallback to time-only
+    }
+
+    stats_init(&time_stats);
+    stats_init(&cycle_stats);
+    clock_gettime(CLOCK_MONOTONIC, &total_start);
+
+    for (unsigned long long i = 0; i < cfg->iterations; ++i) {
+        clock_gettime(CLOCK_MONOTONIC, &iter_start);
+        cycles_start = cycle_counter_begin(&counter);
+
+        if (op(op_ctx) != 0) {
+            goto cleanup;
         }
 
-        // 内存屏障确保测量准确
-        armv8_memory_barrier();
+        cycles = cycle_counter_end(&counter, cycles_start);
+        clock_gettime(CLOCK_MONOTONIC, &iter_end);
 
-        // 开始计时（同时记录CPU周期和时间）
-        uint64_t cycles_start = armv8_read_pmccntr();
-        struct timespec time_start;
-        clock_gettime(CLOCK_MONOTONIC, &time_start);
-
-        // 执行算法（只执行一次）
-        algorithm_execute(ctx->input, ctx->input_size,
-                         ctx->output, &ctx->output_size);
-
-        // 结束计时
-        uint64_t cycles_end = armv8_read_pmccntr();
-        struct timespec time_end;
-        clock_gettime(CLOCK_MONOTONIC, &time_end);
-
-        armv8_memory_barrier();
-
-        // 计算CPU周期差值
-        uint64_t cycles_diff = cycles_end - cycles_start;
-
-        // 计算时间差 (纳秒)
-        uint64_t time_diff_ns =
-            (time_end.tv_sec - time_start.tv_sec) * 1000000000ULL +
-            (time_end.tv_nsec - time_start.tv_nsec);
-
-        // 在线更新统计（Welford 算法）
-        welford_update(&counts_stat, cycles_diff);
-        welford_update(&time_stat, time_diff_ns);
+        stats_update(&time_stats, elapsed_ms(iter_start, iter_end));
+        if (counter.source != CYCLE_SOURCE_NONE && cycles > 0) {
+            stats_update(&cycle_stats, (double) cycles);
+        }
     }
 
-    printf("\r[████████████████████████████████████████] 100%%\n");
+    clock_gettime(CLOCK_MONOTONIC, &total_end);
+    cycle_counter_close(&counter);
 
-    // === 计算最终结果 ===
-
-    // CPU周期统计
-    result->counts_total = counts_stat.sum;
-    result->counts_mean = counts_stat.mean;
-    result->counts_stddev = welford_stddev(&counts_stat);
-    result->counts_cv = (result->counts_mean > 0) ?
-                        (result->counts_stddev / result->counts_mean) * 100.0 : 0;
-    result->counts_min = counts_stat.min;
-    result->counts_max = counts_stat.max;
-
-    // 时间统计
-    result->time_total_ns = time_stat.sum;
-    result->time_mean_ns = time_stat.mean;
-    result->time_stddev_ns = welford_stddev(&time_stat);
-    result->time_cv = (result->time_mean_ns > 0) ?
-                      (result->time_stddev_ns / result->time_mean_ns) * 100.0 : 0;
-
-    // 效率指标
-    result->time_per_op_ns = time_stat.mean;
-    result->time_per_byte_ns = time_stat.mean / (double)ctx->input_size;
-
-    // 吞吐量计算
-    double total_time_sec = (double)time_stat.sum / 1e9;
-    result->throughput_ops = (double)iterations / total_time_sec;
-    result->throughput_bytes = result->throughput_ops * ctx->input_size;
-    result->throughput_mbps = result->throughput_bytes / (1024.0 * 1024.0);
-
+    // 输出 elapsed_ms、ops/s、bytes/s、time mean/median/stddev/CV。
+    // 如果 cycles_available，则同时输出 cycles/op、cycles min/median/max/stddev/CV 和 cycles/B。
     return 0;
 }
 ```
@@ -716,7 +612,7 @@ int run_performance_test(AlgorithmContext* ctx,
 
 ```
 ═══════════════════════════════════════════════════════════════════
-  性能测试结果 (ARMv8)
+  性能测试结果
 ═══════════════════════════════════════════════════════════════════
   算法:           AES-128-CBC
   输入大小:       16 bytes
@@ -789,7 +685,7 @@ int run_performance_test(AlgorithmContext* ctx,
 
 | 指标 | 主要用途 | 关注点 |
 |-----|---------|--------|
-| **Cycles Mean** | 算法效率对比 | 越小越好，不受CPU频率影响 |
+| **Cycles Mean** | 算法效率对比 | 越小越好，应在相同平台和相同计数源下比较 |
 | **Cycles per Byte** | 吞吐效率评估 | 越小越好，适合对比不同数据大小 |
 | **Ops/sec** | 实际应用性能 | 越大越好，受CPU频率影响 |
 | **MB/sec** | 数据处理能力 | 越大越好，直观展示吞吐量 |
@@ -801,7 +697,7 @@ int run_performance_test(AlgorithmContext* ctx,
 ```c
 void print_perf_result_console(const PerfResult* r, const char* algo_name) {
     printf("\n═══════════════════════════════════════════════════════════════════\n");
-    printf("  性能测试结果 (ARMv8)\n");
+    printf("  性能测试结果\n");
     printf("═══════════════════════════════════════════════════════════════════\n");
     printf("  算法:           %s\n", algo_name);
     printf("  输入大小:       %zu bytes\n", r->input_size);
@@ -887,7 +783,7 @@ void print_perf_result_console(const PerfResult* r, const char* algo_name) {
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│  ★ CPU周期数 (cycles_mean)      → 衡量算法效率，真实CPU周期（PMCCNTR）   │
+│  ★ CPU周期数 (cycles_mean)      → 衡量算法效率，来源为当前可用周期计数器 │
 │  ★ 运算吞吐量 (throughput_ops)  → 衡量实际处理能力，ops/sec             │  
 │  ★ Cycles per Byte (cpb)        → 每字节CPU周期，业界标准对比指标        │
 └──────────────────────────────────────────────────────────────────────────┘
@@ -1124,14 +1020,14 @@ int run_heaptrack_test(const char* library_path, HeaptrackResult* result) {
 
 > [!IMPORTANT]
 > **与其他测试模块保持一致**：
-> - **计时方案**：使用 `PMCCNTR_EL0 + clock_gettime`（与性能测试一致，需内核模块）
+> - **计时方案**：复用 `cycle_counter` 周期来源选择，并使用 `clock_gettime(CLOCK_MONOTONIC)` 统计时间；周期不可用时降级为 time-only
 > - **内存监控**：使用 `/proc/self/status` 的 `VmRSS`（与内存测试一致，实时当前值）
 > - **统计算法**：使用 Welford 在线算法（避免存储所有轮次数据）
 
 | 指标 | 说明 | 判定标准 |
 |-----|------|---------|
 | **吞吐量变异系数 (throughput_cv)** | 多轮测试吞吐量的波动程度 | CV < 5% 为稳定 |
-| **CPU周期稳定性 (counts_cv)** | PMCCNTR_EL0 周期数的波动 | CV < 5% 为稳定 |
+| **CPU周期稳定性 (counts_cv)** | 当前可用周期来源的计数波动；不可用时标记为 unavailable | CV < 5% 为稳定 |
 | **时间稳定性 (time_cv)** | 时间均值的波动程度 | CV < 5% 为稳定 |
 | **内存增长率** | VmRSS 从开始到结束的增长 | 增长 < 1% 为无泄漏 |
 | **错误率** | 长时间运行中的错误发生率 | 0% 为通过 |
@@ -1179,7 +1075,7 @@ typedef struct {
     double throughput_min;      // 最小吞吐量
     double throughput_max;      // 最大吞吐量
 
-    // CPU周期统计 (PMCCNTR_EL0)
+    // CPU周期统计（来源同性能测试；不可用时跳过）
     double counts_mean;         // 平均计数值
     double counts_stddev;       // 计数值标准差
     double counts_cv;           // 计数变异系数
@@ -1275,7 +1171,9 @@ int run_stability_test(AlgorithmContext* ctx,
     result->memory_min_kb = result->memory_start_kb;
     result->memory_max_kb = result->memory_start_kb;
 
-    uint64_t counter_freq = armv8_read_cntfrq();
+    cycle_counter_t counter;
+    int cycles_available = (cycle_counter_open(&counter, cycles_enabled) == 0 &&
+                            counter.source != CYCLE_SOURCE_NONE);
 
     printf("\n正在执行稳定性测试...\n");
 
@@ -1301,22 +1199,20 @@ int run_stability_test(AlgorithmContext* ctx,
         uint64_t round_time_total_ns = 0;
 
         for (int i = 0; i < config->iterations_per_round; i++) {
-            armv8_memory_barrier();
-
             // 同时开始计数器和时间测量
-            uint64_t counts_start = armv8_read_cntvct();
+            uint64_t counts_start = cycle_counter_begin(&counter);
             clock_gettime(CLOCK_MONOTONIC, &time_start);
 
             int ret = algorithm_execute(ctx->input, ctx->input_size,
                                         ctx->output, &ctx->output_size);
 
-            uint64_t counts_end = armv8_read_cntvct();
+            uint64_t counts_diff = cycle_counter_end(&counter, counts_start);
             clock_gettime(CLOCK_MONOTONIC, &time_end);
 
-            armv8_memory_barrier();
-
             // 累计本轮数据
-            round_counts_total += (counts_end - counts_start);
+            if (cycles_available && counts_diff > 0) {
+                round_counts_total += counts_diff;
+            }
             round_time_total_ns += (time_end.tv_sec - time_start.tv_sec) * 1000000000ULL +
                                    (time_end.tv_nsec - time_start.tv_nsec);
 
@@ -1904,7 +1800,7 @@ ngcc_bench/
 │   │   ├── stability_test.c        # 稳定性测试
 │   │   └── report.c                # 输出报告
 │   └── utils/                      # 工具头文件 (header-only)
-│       ├── armv8_cycle.h           # ARMv8 PMU 计数器
+│       ├── cycle_counter.h         # perf/TSC/ARMv8 PMU 周期计数抽象
 │       └── welford.h               # Welford 在线统计
 ├── reports/                        # 测试报告输出目录
 ├── design/

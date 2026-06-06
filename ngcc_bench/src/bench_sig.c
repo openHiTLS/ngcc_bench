@@ -8,6 +8,7 @@
 
 #include "bench_core.h"
 #include "kat_parser.h"
+#include "ngcc_log.h"
 
 typedef struct {
     const ngcc_api_t *api;
@@ -40,9 +41,15 @@ static int sig_keygen_once(const ngcc_api_t *api,
                            unsigned long long sk_cap,
                            unsigned long long *sk_len) {
     if (api->sig_keygen(pk, pk_len, sk, sk_len) != 0) {
+        ngcc_log_error("[sig] sig_keygen failed");
         return -1;
     }
     if (*pk_len == 0 || *pk_len > pk_cap || *sk_len == 0 || *sk_len > sk_cap) {
+        ngcc_log_error("[sig] sig_keygen returned invalid lengths: pk_len=%llu pk_cap=%llu sk_len=%llu sk_cap=%llu",
+                       *pk_len,
+                       pk_cap,
+                       *sk_len,
+                       sk_cap);
         return -1;
     }
     return 0;
@@ -57,9 +64,16 @@ static int sig_sign_once(const ngcc_api_t *api,
                          unsigned long long sn_cap,
                          unsigned long long *sn_len) {
     if (api->sig_sign(sk, sk_len, msg, msg_len, sn, sn_len) != 0) {
+        ngcc_log_error("[sig] sig_sign failed: sk_len=%llu msg_len=%llu sn_cap=%llu",
+                       sk_len,
+                       msg_len,
+                       sn_cap);
         return -1;
     }
     if (*sn_len == 0 || *sn_len > sn_cap) {
+        ngcc_log_error("[sig] sig_sign returned invalid signature length: sn_len=%llu sn_cap=%llu",
+                       *sn_len,
+                       sn_cap);
         return -1;
     }
     return 0;
@@ -72,7 +86,14 @@ static int sig_verify_once(const ngcc_api_t *api,
                            unsigned long long sn_len,
                            unsigned char *msg,
                            unsigned long long msg_len) {
-    return api->sig_verify(pk, pk_len, sn, sn_len, msg, msg_len) == 0 ? 0 : -1;
+    if (api->sig_verify(pk, pk_len, sn, sn_len, msg, msg_len) != 0) {
+        ngcc_log_error("[sig] sig_verify failed: pk_len=%llu sn_len=%llu msg_len=%llu",
+                       pk_len,
+                       sn_len,
+                       msg_len);
+        return -1;
+    }
+    return 0;
 }
 
 static int sig_prepare_sign_case(sig_ctx_t *ctx) {
@@ -109,6 +130,10 @@ static int sig_prepare_sign_case(sig_ctx_t *ctx) {
 
 static int alloc_sig_ctx(const ngcc_api_t *api, size_t msg_len, sig_ctx_t *out_ctx) {
     if (api == NULL || out_ctx == NULL || msg_len == 0 || msg_len > NGCC_MAX_BUFFER_LEN) {
+        ngcc_log_error("[sig] invalid context allocation arguments: api_null=%d out_null=%d msg_len=%zu",
+                       api == NULL,
+                       out_ctx == NULL,
+                       msg_len);
         return -1;
     }
 
@@ -120,6 +145,10 @@ static int alloc_sig_ctx(const ngcc_api_t *api, size_t msg_len, sig_ctx_t *out_c
     out_ctx->msg_len = (unsigned long long) msg_len;
 
     if (!validate_sig_caps(out_ctx->pk_cap, out_ctx->sk_cap, out_ctx->sn_cap)) {
+        ngcc_log_error("[sig] invalid advertised caps: pk_cap=%llu sk_cap=%llu sn_cap=%llu",
+                       out_ctx->pk_cap,
+                       out_ctx->sk_cap,
+                       out_ctx->sn_cap);
         return -1;
     }
 
@@ -128,6 +157,11 @@ static int alloc_sig_ctx(const ngcc_api_t *api, size_t msg_len, sig_ctx_t *out_c
     out_ctx->sn = (unsigned char *) calloc(1, (size_t) out_ctx->sn_cap);
     out_ctx->msg = (unsigned char *) calloc(1, msg_len);
     if (out_ctx->pk == NULL || out_ctx->sk == NULL || out_ctx->sn == NULL || out_ctx->msg == NULL) {
+        ngcc_log_error("[sig] allocation failed: pk_cap=%llu sk_cap=%llu sn_cap=%llu msg_len=%zu",
+                       out_ctx->pk_cap,
+                       out_ctx->sk_cap,
+                       out_ctx->sn_cap,
+                       msg_len);
         free(out_ctx->pk);
         free(out_ctx->sk);
         free(out_ctx->sn);
@@ -159,10 +193,15 @@ int ngcc_sig_correctness(const ngcc_api_t *api, size_t msg_len) {
     }
 
     if (sig_prepare_sign_case(&ctx) != 0) {
+        ngcc_log_error("[sig][correctness] failed to prepare sign/verify case: msg_len=%zu", msg_len);
         goto out;
     }
 
     if (sig_verify_once(api, ctx.pk, ctx.pk_len, ctx.sn, ctx.sn_len, ctx.msg, ctx.msg_len) != 0) {
+        ngcc_log_error("[sig][correctness] verification failed after signing: msg_len=%zu pk_len=%llu sn_len=%llu",
+                       msg_len,
+                       ctx.pk_len,
+                       ctx.sn_len);
         goto out;
     }
 
@@ -196,9 +235,10 @@ static int sig_check_field_len(const char *field_name, const ngcc_kat_field_t *d
         return 0;  /* empty len value, skip */
     }
     if ((unsigned long long) data_field->len != expected) {
-        fprintf(stderr, "[sig][kat] error: %s length mismatch: "
-                "file says %llu bytes, data has %zu bytes\n",
-                field_name, expected, data_field->len);
+        ngcc_log_error("[sig][kat] %s length mismatch: expected_bytes=%llu actual_bytes=%zu",
+                       field_name,
+                       expected,
+                       data_field->len);
         return -1;
     }
     return 0;
@@ -224,6 +264,9 @@ static int verify_sig_kat_vectors(const ngcc_api_t *api,
     pk_cap = api->sig_get_pk_len_bytes();
     sn_cap = api->sig_get_sn_len_bytes();
     if (!ngcc_is_valid_len(pk_cap) || !ngcc_is_valid_len(sn_cap)) {
+        ngcc_log_error("[sig][kat] invalid advertised caps: pk_cap=%llu sn_cap=%llu",
+                       pk_cap,
+                       sn_cap);
         return -1;
     }
 
@@ -254,6 +297,14 @@ static int verify_sig_kat_vectors(const ngcc_api_t *api,
             continue;
         }
         if (pk->len > pk_cap || sn->len > sn_cap || msg->len > NGCC_MAX_BUFFER_LEN) {
+            ngcc_log_error("[sig][kat] vector exceeds caps: vector=%zu pk_len=%zu pk_cap=%llu sn_len=%zu sn_cap=%llu msg_len=%zu max_msg=%llu",
+                           i,
+                           pk->len,
+                           pk_cap,
+                           sn->len,
+                           sn_cap,
+                           msg->len,
+                           NGCC_MAX_BUFFER_LEN);
             (*io_failed)++;
             continue;
         }
@@ -287,17 +338,20 @@ int ngcc_sig_verify_correctness_kat_file(const ngcc_api_t *api,
     int rc = -1;
 
     if (api == NULL || kat_path == NULL) {
+        ngcc_log_error("[sig][kat] invalid arguments: api_null=%d kat_path_null=%d",
+                       api == NULL,
+                       kat_path == NULL);
         return -1;
     }
 
     if (!path_is_directory_sig(kat_path)) {
-        fprintf(stderr, "[sig][kat] error: --kat path is not a directory: %s\n", kat_path);
+        ngcc_log_error("[sig][kat] --kat path is not a directory: %s", kat_path);
         return -1;
     }
 
     dir = opendir(kat_path);
     if (dir == NULL) {
-        fprintf(stderr, "[sig][kat] error: cannot open directory: %s\n", kat_path);
+        ngcc_log_error("[sig][kat] cannot open directory: %s", kat_path);
         return -1;
     }
 
@@ -311,6 +365,7 @@ int ngcc_sig_verify_correctness_kat_file(const ngcc_api_t *api,
         }
         len = snprintf(file_path, sizeof(file_path), "%s/%s", kat_path, entry->d_name);
         if (len < 0 || len >= (int) sizeof(file_path)) {
+            ngcc_log_error("[sig][kat] KAT file path too long: dir=%s file=%s", kat_path, entry->d_name);
             continue;
         }
         if (path_is_directory_sig(file_path)) {
@@ -323,26 +378,30 @@ int ngcc_sig_verify_correctness_kat_file(const ngcc_api_t *api,
 
         memset(&kat, 0, sizeof(kat));
         if (ngcc_kat_parse_file(file_path, &kat) != 0) {
-            fprintf(stderr, "[sig][kat] error: failed to parse %s\n", entry->d_name);
+            ngcc_log_error("[sig][kat] failed to parse file: %s", file_path);
             closedir(dir);
             goto done;
         }
 
         file_count++;
-        printf("[sig][kat] testing %s (%zu vectors) ...\n", entry->d_name, kat.count);
         verify_sig_kat_vectors(api, &kat, &total, &passed, &failed);
-        printf("[sig][kat] %s: total=%llu passed=%llu failed=%llu\n",
-               entry->d_name, total, passed, failed);
         ngcc_kat_free(&kat);
     }
     closedir(dir);
 
     if (file_count == 0) {
-        fprintf(stderr, "[sig][kat] error: no KAT_SIG_ files found in: %s\n", kat_path);
+        ngcc_log_error("[sig][kat] no KAT_SIG_ files found in: %s", kat_path);
         goto done;
     }
 
     rc = (total > 0 && failed == 0) ? 0 : -1;
+    if (rc != 0) {
+        ngcc_log_error("[sig][kat] verification failed: total=%llu passed=%llu failed=%llu dir=%s",
+                       total,
+                       passed,
+                       failed,
+                       kat_path);
+    }
 
 done:
     if (out_total != NULL) {
@@ -389,6 +448,10 @@ int ngcc_sig_keygen_performance(const ngcc_api_t *api,
     int rc = -1;
 
     if (api == NULL || cfg == NULL || out_result == NULL) {
+        ngcc_log_error("[sig][performance][keygen] invalid arguments: api_null=%d cfg_null=%d out_null=%d",
+                       api == NULL,
+                       cfg == NULL,
+                       out_result == NULL);
         return -1;
     }
 
@@ -398,18 +461,25 @@ int ngcc_sig_keygen_performance(const ngcc_api_t *api,
     ctx.sk_cap = api->sig_get_sk_len_bytes();
 
     if (!ngcc_is_valid_len(ctx.pk_cap) || !ngcc_is_valid_len(ctx.sk_cap)) {
+        ngcc_log_error("[sig][performance][keygen] invalid advertised caps: pk_cap=%llu sk_cap=%llu",
+                       ctx.pk_cap,
+                       ctx.sk_cap);
         return -1;
     }
 
     ctx.pk = (unsigned char *) calloc(1, (size_t) ctx.pk_cap);
     ctx.sk = (unsigned char *) calloc(1, (size_t) ctx.sk_cap);
     if (ctx.pk == NULL || ctx.sk == NULL) {
+        ngcc_log_error("[sig][performance][keygen] allocation failed: pk_cap=%llu sk_cap=%llu",
+                       ctx.pk_cap,
+                       ctx.sk_cap);
         goto out;
     }
 
     local_cfg = *cfg;
     local_cfg.bytes_per_op = ctx.pk_cap + ctx.sk_cap;
     if (ngcc_run_performance_op(&local_cfg, sig_keygen_perf_op, &ctx, out_result) != 0) {
+        ngcc_log_error("[sig][performance][keygen] benchmark failed: iterations=%llu", cfg->iterations);
         goto out;
     }
 
@@ -447,7 +517,13 @@ int ngcc_sig_sign_performance(const ngcc_api_t *api,
     ngcc_perf_config_t local_cfg;
     int rc = -1;
 
-    if (alloc_sig_ctx(api, msg_len, &ctx) != 0 || cfg == NULL || out_result == NULL) {
+    if (cfg == NULL || out_result == NULL) {
+        ngcc_log_error("[sig][performance][sign] invalid arguments: cfg_null=%d out_null=%d",
+                       cfg == NULL,
+                       out_result == NULL);
+        return -1;
+    }
+    if (alloc_sig_ctx(api, msg_len, &ctx) != 0) {
         return -1;
     }
 
@@ -460,12 +536,16 @@ int ngcc_sig_sign_performance(const ngcc_api_t *api,
                         ctx.sk,
                         ctx.sk_cap,
                         &ctx.sk_len) != 0) {
+        ngcc_log_error("[sig][performance][sign] setup keygen failed: msg_len=%zu", msg_len);
         goto out;
     }
 
     local_cfg = *cfg;
     local_cfg.bytes_per_op = (unsigned long long) msg_len;
     if (ngcc_run_performance_op(&local_cfg, sig_sign_perf_op, &ctx, out_result) != 0) {
+        ngcc_log_error("[sig][performance][sign] benchmark failed: msg_len=%zu iterations=%llu",
+                       msg_len,
+                       cfg->iterations);
         goto out;
     }
 
@@ -490,16 +570,24 @@ int ngcc_sig_verify_performance(const ngcc_api_t *api,
     int rc = -1;
 
     if (cfg == NULL || out_result == NULL || alloc_sig_ctx(api, msg_len, &ctx) != 0) {
+        ngcc_log_error("[sig][performance][verify] invalid arguments or allocation failed: cfg_null=%d out_null=%d msg_len=%zu",
+                       cfg == NULL,
+                       out_result == NULL,
+                       msg_len);
         return -1;
     }
 
     if (sig_prepare_sign_case(&ctx) != 0) {
+        ngcc_log_error("[sig][performance][verify] setup sign case failed: msg_len=%zu", msg_len);
         goto out;
     }
 
     local_cfg = *cfg;
     local_cfg.bytes_per_op = (unsigned long long) msg_len;
     if (ngcc_run_performance_op(&local_cfg, sig_verify_perf_op, &ctx, out_result) != 0) {
+        ngcc_log_error("[sig][performance][verify] benchmark failed: msg_len=%zu iterations=%llu",
+                       msg_len,
+                       cfg->iterations);
         goto out;
     }
 

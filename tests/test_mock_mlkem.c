@@ -36,14 +36,14 @@ int main(int argc, char **argv) {
 
     {
         char *const cmd[] = {argv[1], "--lib", argv[2], "--test", "kem", "--mode", "correctness", NULL};
-        CHECK(run_expect(cmd, "[kem][correctness] PASS", NULL, NULL) == 0, "aggregate correctness failed");
+        CHECK(run_expect(cmd, "[correctness] BEGIN", "[correctness] END status=PASS", NULL) == 0, "aggregate correctness failed");
     }
     {
         char *const cmd[] = {
             argv[1], "--lib", argv[2], "--test", "kem", "--mode", "performance",
             "--iterations", "1000", "--cycles", "off", NULL
         };
-        CHECK(run_expect(cmd, "[kem][keygen][performance]", "[kem][encap][performance]", "[kem][decap][performance]") == 0,
+        CHECK(run_expect(cmd, "[performance] BEGIN", "[performance] END status=PASS", NULL) == 0,
               "sub-op performance failed");
     }
 
