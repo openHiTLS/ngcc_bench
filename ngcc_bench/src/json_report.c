@@ -163,16 +163,13 @@ static const char *stability_status_to_text(const test_report_t *test) {
     if (test == NULL) {
         return "SKIPPED";
     }
-    if (test->stability_status == STATUS_SKIPPED) {
-        return "SKIPPED";
-    }
-    if (test->stability_status == STATUS_STOPPED) {
-        return "STOPPED";
+    if (test->stability_status != STATUS_PASS) {
+        return status_to_text(test->stability_status);
     }
     if (test->stability.status[0] != '\0') {
         return test->stability.status;
     }
-    return status_to_text(test->stability_status);
+    return "PASS";
 }
 
 static void write_environment_metadata(json_writer_t *w, int lang) {
