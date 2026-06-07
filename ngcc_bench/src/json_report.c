@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "json_report.h"
+#include "ngcc_log.h"
 
 #define L(lang, zh, en) ((lang) == LANG_EN ? (en) : (zh))
 
@@ -174,14 +175,6 @@ static const char *stability_status_to_text(const test_report_t *test) {
     return status_to_text(test->stability_status);
 }
 
-static void write_report_metadata(json_writer_t *w, const cli_options_t *opts) {
-    jw_begin_object(w, "report_metadata");
-    jw_key_str(w, "generator", "ngcc_bench");
-    jw_key_str(w, "generator_version", NGCC_VERSION);
-    jw_key_str(w, "json_out_path", opts->json_out_path);
-    jw_end_object(w);
-}
-
 static void write_environment_metadata(json_writer_t *w, int lang) {
     char hostname[256];
     char cwd[PATH_MAX];
@@ -264,7 +257,7 @@ int write_json_report(const cli_options_t *opts,
 
     fp = open_json_report_file(out_path);
     if (fp == NULL) {
-        fprintf(stderr, "[ERROR][report] failed to open json report: %s\n", out_path);
+        ngcc_log_error("[report] failed to open json report: %s", out_path);
         return -1;
     }
 
@@ -375,7 +368,7 @@ int write_json_report(const cli_options_t *opts,
                         jw_key_double(&w, L(lang, "CPU周期每字节(周期/字节)", "cycles_per_byte"), p->cycles_per_byte);
                         jw_key_double(&w, L(lang, "CPU周期变异系数(%)", "cycles_cv_percent"), p->cycles_cv_percent);
                     }
-                    jw_key_double(&w, L(lang, "字节吞吐量(字节/秒)", "bytes_per_sec"), p->bytes_per_sec);
+                    jw_key_double(&w, L(lang, "吞吐量(MB/s)", "throughput_mb_per_sec"), p->mb_per_sec);
                 } else {
                     if (p->cycles_available) {
                         jw_key_double(&w, L(lang, "CPU周期均值(周期/次)", "cycles_per_op_mean"), p->cycles_per_op);
@@ -412,11 +405,19 @@ int write_json_report(const cli_options_t *opts,
             jw_key_double(&w, L(lang, "操作吞吐量变异系数(%)", "throughput_cv_percent_ops"), test->stability.throughput_cv_percent);
             jw_key_double(&w, L(lang, "操作吞吐量最小值(次/秒)", "throughput_min_ops"), test->stability.throughput_min_ops);
             jw_key_double(&w, L(lang, "操作吞吐量最大值(次/秒)", "throughput_max_ops"), test->stability.throughput_max_ops);
-            jw_key_double(&w, L(lang, "字节吞吐量均值(字节/秒)", "throughput_mean_bytes"), test->stability.throughput_mean_bytes);
-            jw_key_double(&w, L(lang, "字节吞吐量标准差(字节/秒)", "throughput_stddev_bytes"), test->stability.throughput_stddev_bytes);
-            jw_key_double(&w, L(lang, "字节吞吐量变异系数(%)", "throughput_cv_percent_bytes"), test->stability.throughput_cv_percent_bytes);
-            jw_key_double(&w, L(lang, "字节吞吐量最小值(字节/秒)", "throughput_min_bytes"), test->stability.throughput_min_bytes);
-            jw_key_double(&w, L(lang, "字节吞吐量最大值(字节/秒)", "throughput_max_bytes"), test->stability.throughput_max_bytes);
+            if (test->is_hash) {
+                jw_key_double(&w, L(lang, "吞吐量均值(MB/s)", "throughput_mean_mb_per_sec"), test->stability.throughput_mean_mb);
+                jw_key_double(&w, L(lang, "吞吐量标准差(MB/s)", "throughput_stddev_mb_per_sec"), test->stability.throughput_stddev_mb);
+                jw_key_double(&w, L(lang, "吞吐量变异系数(%)", "throughput_cv_percent_bytes"), test->stability.throughput_cv_percent_bytes);
+                jw_key_double(&w, L(lang, "吞吐量最小值(MB/s)", "throughput_min_mb_per_sec"), test->stability.throughput_min_mb);
+                jw_key_double(&w, L(lang, "吞吐量最大值(MB/s)", "throughput_max_mb_per_sec"), test->stability.throughput_max_mb);
+            } else {
+                jw_key_double(&w, L(lang, "字节吞吐量均值(字节/秒)", "throughput_mean_bytes"), test->stability.throughput_mean_bytes);
+                jw_key_double(&w, L(lang, "字节吞吐量标准差(字节/秒)", "throughput_stddev_bytes"), test->stability.throughput_stddev_bytes);
+                jw_key_double(&w, L(lang, "字节吞吐量变异系数(%)", "throughput_cv_percent_bytes"), test->stability.throughput_cv_percent_bytes);
+                jw_key_double(&w, L(lang, "字节吞吐量最小值(字节/秒)", "throughput_min_bytes"), test->stability.throughput_min_bytes);
+                jw_key_double(&w, L(lang, "字节吞吐量最大值(字节/秒)", "throughput_max_bytes"), test->stability.throughput_max_bytes);
+            }
             if (test->stability.cycles_available) {
                 jw_key_double(&w, L(lang, "CPU周期均值(周期/次)", "cycles_per_op_mean"), test->stability.cycles_mean);
                 jw_key_double(&w, L(lang, "CPU周期标准差(周期)", "cycles_stddev"), test->stability.cycles_stddev);
@@ -452,6 +453,7 @@ int write_json_report(const cli_options_t *opts,
             jw_key_llu(&w, L(lang, "堆内存峰值(字节)", "heap_peak_bytes"), (unsigned long long) test->heap_peak_bytes);
             jw_key_llu(&w, L(lang, "堆内存增量(字节)", "heap_delta_bytes"),
                        (unsigned long long) ((long long) test->heap_peak_bytes - (long long) test->heap_baseline_bytes));
+            jw_key_llu(&w, L(lang, "峰值内存占用(字节)", "peak_memory_bytes"), (unsigned long long) test->peak_memory_bytes);
             jw_end_object(&w);
         } else {
             jw_key_null(&w, L(lang, "内存指标", "memory_metrics"));
@@ -479,7 +481,6 @@ int write_json_report(const cli_options_t *opts,
     fputc('\n', fp);
 
     fclose(fp);
-    printf("[report] json=%s\n", out_path);
     return 0;
 }
 
@@ -500,14 +501,25 @@ int write_json_reports(const cli_options_t *opts,
     path_en_len = snprintf(path_en, sizeof(path_en), "%s.en", opts->json_out_path);
     if (path_zh_len < 0 || path_zh_len >= (int) sizeof(path_zh) ||
         path_en_len < 0 || path_en_len >= (int) sizeof(path_en)) {
-        fprintf(stderr, "[ERROR][report] json report path is too long\n");
+        ngcc_log_error("[report] json report path is too long: %s", opts->json_out_path);
+        printf("[report] END status=FAIL path=%s\n", opts->json_out_path);
+        fflush(stdout);
         return -1;
     }
 
     rc = write_json_report(opts, report, overall_failed, LANG_ZH, path_zh);
     if (rc != 0) {
+        printf("[report] END status=FAIL path=%s\n", path_zh);
+        fflush(stdout);
         return rc;
     }
     rc = write_json_report(opts, report, overall_failed, LANG_EN, path_en);
+    if (rc != 0) {
+        printf("[report] END status=FAIL path=%s\n", path_en);
+        fflush(stdout);
+        return rc;
+    }
+    printf("[report] END status=PASS path_zh=%s path_en=%s\n", path_zh, path_en);
+    fflush(stdout);
     return rc;
 }

@@ -9,6 +9,7 @@
 #include "bench_core.h"
 #include "drng.h"
 #include "kat_parser.h"
+#include "ngcc_log.h"
 
 typedef struct {
     const ngcc_api_t *api;
@@ -54,11 +55,18 @@ int ngcc_hash_correctness(const ngcc_api_t *api, int digest_len_bits, size_t msg
     int rc = -1;
 
     if (api == NULL || digest_len_bits <= 0 || msg_len == 0 || msg_len > NGCC_MAX_BUFFER_LEN) {
+        ngcc_log_error("[hash][correctness] invalid arguments: api_null=%d digest_len_bits=%d msg_len=%zu",
+                       api == NULL,
+                       digest_len_bits,
+                       msg_len);
         return -1;
     }
 
     digest_len = (size_t) ((digest_len_bits + 7) / 8);
     if (digest_len == 0) {
+        ngcc_log_error("[hash][correctness] invalid digest length: digest_len_bits=%d digest_len_bytes=%zu",
+                       digest_len_bits,
+                       digest_len);
         return -1;
     }
 
@@ -66,24 +74,38 @@ int ngcc_hash_correctness(const ngcc_api_t *api, int digest_len_bits, size_t msg
     digest_a = (unsigned char *) calloc(1, digest_len);
     digest_b = (unsigned char *) calloc(1, digest_len);
     if (msg == NULL || digest_a == NULL || digest_b == NULL) {
+        ngcc_log_error("[hash][correctness] allocation failed: msg_len=%zu digest_len=%zu",
+                       msg_len,
+                       digest_len);
         goto out;
     }
 
     if (ngcc_fill_random(msg, msg_len) != 0) {
+        ngcc_log_error("[hash][correctness] failed to fill random message: msg_len=%zu", msg_len);
         goto out;
     }
 
     memset(digest_a, 0xA5, digest_len);
     if (hash_run_once(api, digest_len_bits, msg, msg_len, digest_a, digest_len) != 0) {
+        ngcc_log_error("[hash][correctness] first hash invocation failed: digest_len_bits=%d msg_len=%zu",
+                       digest_len_bits,
+                       msg_len);
         goto out;
     }
 
     memset(digest_b, 0x5A, digest_len);
     if (hash_run_once(api, digest_len_bits, msg, msg_len, digest_b, digest_len) != 0) {
+        ngcc_log_error("[hash][correctness] second hash invocation failed: digest_len_bits=%d msg_len=%zu",
+                       digest_len_bits,
+                       msg_len);
         goto out;
     }
 
     if (memcmp(digest_a, digest_b, digest_len) != 0) {
+        ngcc_log_error("[hash][correctness] digest mismatch across repeated runs: digest_len_bits=%d msg_len=%zu digest_len=%zu",
+                       digest_len_bits,
+                       msg_len,
+                       digest_len);
         goto out;
     }
 
@@ -156,8 +178,10 @@ static int verify_kat_vectors(const ngcc_api_t *api,
         if (dst_len_f != NULL) {
             int dst_len_val = (int) field_to_u64(dst_len_f);
             if (dst_len_val != digest_len_bits) {
-                fprintf(stderr, "[hash][kat] error: Dst_Len=%d does not match digest_len_bits=%d\n",
-                        dst_len_val, digest_len_bits);
+                ngcc_log_error("[hash][kat] Dst_Len mismatch: vector=%zu Dst_Len=%d digest_len_bits=%d",
+                               i,
+                               dst_len_val,
+                               digest_len_bits);
                 any_fail = 1;
                 continue;
             }
@@ -175,7 +199,10 @@ static int verify_kat_vectors(const ngcc_api_t *api,
         /* Determine message data */
         msg_data = NULL;
         if (msg_len_bits_val > (NGCC_MAX_BUFFER_LEN * 8ULL)) {
-            fprintf(stderr, "[hash][kat] error: Msg_Len=%llu bits exceeds maximum buffer size\n", msg_len_bits_val);
+            ngcc_log_error("[hash][kat] Msg_Len exceeds maximum buffer size: vector=%zu Msg_Len=%llu max_bits=%llu",
+                           i,
+                           msg_len_bits_val,
+                           NGCC_MAX_BUFFER_LEN * 8ULL);
             any_fail = 1;
             continue;
         }
@@ -186,18 +213,28 @@ static int verify_kat_vectors(const ngcc_api_t *api,
             DRNG_ctx drng;
             msg_buf = (unsigned char *) calloc(1, msg_data_bytes > 0 ? msg_data_bytes : 1);
             if (msg_buf == NULL) {
-                fprintf(stderr, "[hash][kat] error: failed to allocate %zu bytes for message "
-                        "(Msg_Len=%llu bits)\n", msg_data_bytes, msg_len_bits_val);
+                ngcc_log_error("[hash][kat] failed to allocate DRNG message: vector=%zu msg_bytes=%zu Msg_Len=%llu bits",
+                               i,
+                               msg_data_bytes,
+                               msg_len_bits_val);
                 any_fail = 1;
                 continue;
             }
             if (init_random_number(&drng, msg_seed_f->data, msg_seed_f->len) != 0) {
+                ngcc_log_error("[hash][kat] failed to initialize DRNG: vector=%zu seed_len=%zu Msg_Len=%llu bits",
+                               i,
+                               msg_seed_f->len,
+                               msg_len_bits_val);
                 free(msg_buf);
                 msg_buf = NULL;
                 any_fail = 1;
                 continue;
             }
             if (get_random_number(&drng, msg_buf, msg_len_bits_val) != 0) {
+                ngcc_log_error("[hash][kat] failed to generate DRNG message: vector=%zu Msg_Len=%llu bits msg_bytes=%zu",
+                               i,
+                               msg_len_bits_val,
+                               msg_data_bytes);
                 free(msg_buf);
                 msg_buf = NULL;
                 any_fail = 1;
@@ -214,8 +251,10 @@ static int verify_kat_vectors(const ngcc_api_t *api,
             const ngcc_kat_field_t *msg_exp = ngcc_kat_get_field(vec, "Msg_Exp");
             msg_buf = (unsigned char *) calloc(1, msg_data_bytes > 0 ? msg_data_bytes : 1);
             if (msg_buf == NULL) {
-                fprintf(stderr, "[hash][kat] error: failed to allocate %zu bytes for message "
-                        "(Msg_Len=%llu bits)\n", msg_data_bytes, msg_len_bits_val);
+                ngcc_log_error("[hash][kat] failed to allocate synthetic message: vector=%zu msg_bytes=%zu Msg_Len=%llu bits",
+                               i,
+                               msg_data_bytes,
+                               msg_len_bits_val);
                 any_fail = 1;
                 continue;
             }
@@ -225,6 +264,17 @@ static int verify_kat_vectors(const ngcc_api_t *api,
             /* else: already all zeros from calloc */
             msg_data = msg_buf;
         } else if (input != NULL && input->data != NULL) {
+            if (input->len < msg_data_bytes) {
+                ngcc_log_error("[hash][kat] Msg field shorter than Msg_Len: vector=%zu Msg_Len=%llu bits required_bytes=%zu actual_bytes=%zu",
+                               i,
+                               msg_len_bits_val,
+                               msg_data_bytes,
+                               input->len);
+                (*io_total)++;
+                (*io_failed)++;
+                any_fail = 1;
+                continue;
+            }
             msg_data = input->data;
         } else if (input != NULL && msg_len_bits_val == 0) {
             /* Empty message (Msg_Len = 0, Msg = "") */
@@ -235,6 +285,10 @@ static int verify_kat_vectors(const ngcc_api_t *api,
 
         (*io_total)++;
         if (output->len != digest_len) {
+            ngcc_log_error("[hash][kat] Dst length mismatch: vector=%zu expected_bytes=%zu actual_bytes=%zu",
+                           i,
+                           digest_len,
+                           output->len);
             (*io_failed)++;
             if (msg_buf != NULL) { free(msg_buf); msg_buf = NULL; }
             continue;
@@ -243,12 +297,22 @@ static int verify_kat_vectors(const ngcc_api_t *api,
                            msg_data,
                            msg_len_bits_val,
                            digest) != 0) {
+            ngcc_log_error("[hash][kat] CryptHash failed: vector=%zu digest_len_bits=%d Msg_Len=%llu bits msg_bytes=%zu",
+                           i,
+                           digest_len_bits,
+                           msg_len_bits_val,
+                           msg_data_bytes);
             (*io_failed)++;
             any_fail = 1;
             if (msg_buf != NULL) { free(msg_buf); msg_buf = NULL; }
             continue;
         }
         if (memcmp(digest, output->data, digest_len) != 0) {
+            ngcc_log_error("[hash][kat] digest mismatch: vector=%zu digest_len_bits=%d Msg_Len=%llu bits digest_bytes=%zu",
+                           i,
+                           digest_len_bits,
+                           msg_len_bits_val,
+                           digest_len);
             (*io_failed)++;
             any_fail = 1;
             if (msg_buf != NULL) { free(msg_buf); msg_buf = NULL; }
@@ -270,6 +334,14 @@ static int path_is_directory(const char *path) {
         return 0;
     }
     return S_ISDIR(st.st_mode);
+}
+
+static int path_is_regular_file(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        return 0;
+    }
+    return S_ISREG(st.st_mode);
 }
 
 /* ── KAT_Loop verification ── */
@@ -298,6 +370,7 @@ static int verify_kat_loop(const ngcc_api_t *api,
     int rc = -1;
 
     if (kat->count < 1) {
+        ngcc_log_error("[hash][kat_loop] KAT file has no vectors");
         return -1;
     }
     vec = &kat->vectors[0];
@@ -307,19 +380,19 @@ static int verify_kat_loop(const ngcc_api_t *api,
     dst_len_f = ngcc_kat_get_field(vec, "Dst_Len");
 
     if (input == NULL || input->data == NULL) {
-        fprintf(stderr, "[hash][kat_loop] error: Msg field missing\n");
+        ngcc_log_error("[hash][kat_loop] Msg field missing");
         return -1;
     }
     if (output == NULL || output->data == NULL || output->len == 0) {
-        fprintf(stderr, "[hash][kat_loop] error: Dst field missing or empty\n");
+        ngcc_log_error("[hash][kat_loop] Dst field missing or empty");
         return -1;
     }
     if (msg_len_f == NULL) {
-        fprintf(stderr, "[hash][kat_loop] error: Msg_Len field missing\n");
+        ngcc_log_error("[hash][kat_loop] Msg_Len field missing");
         return -1;
     }
     if (dst_len_f == NULL) {
-        fprintf(stderr, "[hash][kat_loop] error: Dst_Len field missing\n");
+        ngcc_log_error("[hash][kat_loop] Dst_Len field missing");
         return -1;
     }
 
@@ -327,8 +400,9 @@ static int verify_kat_loop(const ngcc_api_t *api,
     dst_len_bits_val = (int) field_to_u64(dst_len_f);
 
     if (dst_len_bits_val != digest_len_bits) {
-        fprintf(stderr, "[hash][kat_loop] error: Dst_Len=%d does not match digest_len_bits=%d\n",
-                dst_len_bits_val, digest_len_bits);
+        ngcc_log_error("[hash][kat_loop] Dst_Len mismatch: Dst_Len=%d digest_len_bits=%d",
+                       dst_len_bits_val,
+                       digest_len_bits);
         return -1;
     }
 
@@ -336,8 +410,12 @@ static int verify_kat_loop(const ngcc_api_t *api,
     msg_bytes = (size_t) ((msg_len_bits_val + 7) / 8);
 
     if (msg_bytes == 0 || msg_bytes > NGCC_MAX_BUFFER_LEN || digest_len == 0 || digest_len > msg_bytes) {
-        fprintf(stderr, "[hash][kat_loop] error: invalid Msg_Len=%llu or Dst_Len=%d (msg_bytes=%zu exceeds max)\n",
-            msg_len_bits_val, dst_len_bits_val, msg_bytes);
+        ngcc_log_error("[hash][kat_loop] invalid lengths: Msg_Len=%llu bits Dst_Len=%d msg_bytes=%zu digest_bytes=%zu max_bytes=%llu",
+                       msg_len_bits_val,
+                       dst_len_bits_val,
+                       msg_bytes,
+                       digest_len,
+                       NGCC_MAX_BUFFER_LEN);
         return -1;
     }
 
@@ -345,6 +423,9 @@ static int verify_kat_loop(const ngcc_api_t *api,
     digest = (unsigned char *) calloc(1, digest_len);
     buffer = (unsigned char *) calloc(1, digest_len);
     if (msg == NULL || digest == NULL || buffer == NULL) {
+        ngcc_log_error("[hash][kat_loop] allocation failed: msg_bytes=%zu digest_bytes=%zu",
+                       msg_bytes,
+                       digest_len);
         goto out;
     }
 
@@ -354,6 +435,9 @@ static int verify_kat_loop(const ngcc_api_t *api,
 
     /* h_0 = CryptHash(m_0) */
     if (api->CryptHash(digest_len_bits, msg, msg_len_bits_val, digest) != 0) {
+        ngcc_log_error("[hash][kat_loop] initial CryptHash failed: digest_len_bits=%d Msg_Len=%llu bits",
+                       digest_len_bits,
+                       msg_len_bits_val);
         goto out;
     }
 
@@ -376,12 +460,20 @@ static int verify_kat_loop(const ngcc_api_t *api,
             }
         }
         if (api->CryptHash(digest_len_bits, msg, msg_len_bits_val, digest) != 0) {
+            ngcc_log_error("[hash][kat_loop] CryptHash failed during loop: iteration=%d/%d digest_len_bits=%d Msg_Len=%llu bits",
+                           i + 1,
+                           KAT_LOOP_ITERATIONS,
+                           digest_len_bits,
+                           msg_len_bits_val);
             goto out;
         }
     }
 
     (*io_total)++;
     if (output->len != digest_len || memcmp(digest, output->data, digest_len) != 0) {
+        ngcc_log_error("[hash][kat_loop] digest mismatch: expected_bytes=%zu actual_bytes=%zu",
+                       digest_len,
+                       output->len);
         (*io_failed)++;
     } else {
         (*io_passed)++;
@@ -431,6 +523,42 @@ static const char *kat_type_name(kat_file_type_t t) {
     }
 }
 
+static const char *path_basename_hash(const char *path) {
+    const char *base;
+
+    if (path == NULL) {
+        return "";
+    }
+    base = strrchr(path, '/');
+    return base != NULL ? base + 1 : path;
+}
+
+static int verify_hash_kat_one_file(const ngcc_api_t *api,
+                                    int digest_len_bits,
+                                    const char *file_path,
+                                    kat_file_type_t ftype,
+                                    unsigned long long *io_total,
+                                    unsigned long long *io_passed,
+                                    unsigned long long *io_failed) {
+    ngcc_kat_file_t kat;
+    int rc;
+
+    memset(&kat, 0, sizeof(kat));
+    if (ngcc_kat_parse_file(file_path, &kat) != 0) {
+        ngcc_log_error("[hash][kat] failed to parse file: %s", file_path);
+        return -2;
+    }
+
+    if (ftype == KAT_TYPE_LOOP) {
+        rc = verify_kat_loop(api, digest_len_bits, &kat, io_total, io_passed, io_failed);
+    } else {
+        rc = verify_kat_vectors(api, digest_len_bits, &kat, io_total, io_passed, io_failed);
+    }
+
+    ngcc_kat_free(&kat);
+    return rc;
+}
+
 int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
                                    int digest_len_bits,
                                    const char *kat_path,
@@ -447,26 +575,52 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
     int rc = -1;
 
     if (api == NULL || digest_len_bits <= 0 || kat_path == NULL) {
+        ngcc_log_error("[hash][kat] invalid arguments: api_null=%d digest_len_bits=%d kat_path_null=%d",
+                       api == NULL,
+                       digest_len_bits,
+                       kat_path == NULL);
         return -1;
     }
 
+    if (path_is_regular_file(kat_path)) {
+        kat_file_type_t ftype = classify_kat_file(path_basename_hash(kat_path));
+
+        file_count = 1;
+        int vrc = verify_hash_kat_one_file(api,
+                                           digest_len_bits,
+                                           kat_path,
+                                           ftype,
+                                           &total,
+                                           &passed_count,
+                                           &failed_count);
+
+        rc = (vrc == 0 && total > 0 && failed_count == 0) ? 0 : -1;
+        if (rc != 0) {
+            ngcc_log_error("[hash][kat] verification failed: total=%llu passed=%llu failed=%llu file=%s",
+                           total,
+                           passed_count,
+                           failed_count,
+                           kat_path);
+        }
+        goto done;
+    }
+
     if (!path_is_directory(kat_path)) {
-        fprintf(stderr, "[hash][kat] error: --kat path is not a directory: %s\n", kat_path);
+        ngcc_log_error("[hash][kat] --kat path is not a file or directory: %s", kat_path);
         return -1;
     }
 
     dir = opendir(kat_path);
     if (dir == NULL) {
-        fprintf(stderr, "[hash][kat] error: cannot open directory: %s\n", kat_path);
+        ngcc_log_error("[hash][kat] cannot open directory: %s", kat_path);
         return -1;
     }
 
     while ((entry = readdir(dir)) != NULL) {
-        ngcc_kat_file_t kat;
         char file_path[2048];
         int len;
-        kat_file_type_t ftype;
         int vrc;
+        kat_file_type_t ftype;
 
         if (entry->d_name[0] == '.') {
             continue;
@@ -474,6 +628,7 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
 
         len = snprintf(file_path, sizeof(file_path), "%s/%s", kat_path, entry->d_name);
         if (len < 0 || len >= (int) sizeof(file_path)) {
+            ngcc_log_error("[hash][kat] KAT file path too long: dir=%s file=%s", kat_path, entry->d_name);
             continue;
         }
         if (path_is_directory(file_path)) {
@@ -485,9 +640,14 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
             continue;  /* skip files not matching any known KAT prefix */
         }
 
-        memset(&kat, 0, sizeof(kat));
-        if (ngcc_kat_parse_file(file_path, &kat) != 0) {
-            fprintf(stderr, "[hash][kat] error: failed to parse %s\n", entry->d_name);
+        vrc = verify_hash_kat_one_file(api,
+                                       digest_len_bits,
+                                       file_path,
+                                       ftype,
+                                       &total,
+                                       &passed_count,
+                                       &failed_count);
+        if (vrc == -2) {
             closedir(dir);
             rc = -1;
             goto done;
@@ -497,25 +657,11 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
         if (ftype < 4) {
             found_types[ftype] = 1;
         }
-        printf("[hash][kat] testing %s (%s, %zu vectors) ...\n",
-               entry->d_name, kat_type_name(ftype), kat.count);
-
-        if (ftype == KAT_TYPE_LOOP) {
-            vrc = verify_kat_loop(api, digest_len_bits, &kat, &total, &passed_count, &failed_count);
-        } else {
-            /* KAT_2_12, KAT_2_23, KAT_2_33 all use verify_kat_vectors */
-            vrc = verify_kat_vectors(api, digest_len_bits, &kat, &total, &passed_count, &failed_count);
-        }
-
-        printf("[hash][kat] %s: total=%llu passed=%llu failed=%llu %s\n",
-               entry->d_name, total, passed_count, failed_count,
-               vrc == 0 ? "OK" : "FAIL");
-        ngcc_kat_free(&kat);
     }
     closedir(dir);
 
     if (file_count == 0) {
-        fprintf(stderr, "[hash][kat] error: no KAT files found in directory: %s\n", kat_path);
+        ngcc_log_error("[hash][kat] no KAT files found in directory: %s", kat_path);
         rc = -1;
         goto done;
     }
@@ -526,8 +672,7 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
         size_t ri;
         for (ri = 0; ri < sizeof(required) / sizeof(required[0]); ++ri) {
             if (!found_types[required[ri]]) {
-                fprintf(stderr, "[hash][kat] error: missing required KAT type: %s\n",
-                        kat_type_name(required[ri]));
+                ngcc_log_error("[hash][kat] missing required KAT type: %s", kat_type_name(required[ri]));
                 rc = -1;
                 goto done;
             }
@@ -535,6 +680,13 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
     }
 
     rc = (total > 0 && failed_count == 0) ? 0 : -1;
+    if (rc != 0) {
+        ngcc_log_error("[hash][kat] verification failed: total=%llu passed=%llu failed=%llu dir=%s",
+                       total,
+                       passed_count,
+                       failed_count,
+                       kat_path);
+    }
 
 done:
     if (out_total != NULL) {
@@ -559,6 +711,12 @@ int ngcc_hash_performance(const ngcc_api_t *api,
 
     if (api == NULL || cfg == NULL || out_result == NULL || digest_len_bits <= 0 || msg_len == 0 ||
         msg_len > NGCC_MAX_BUFFER_LEN) {
+        ngcc_log_error("[hash][performance] invalid arguments: api_null=%d cfg_null=%d out_null=%d digest_len_bits=%d msg_len=%zu",
+                       api == NULL,
+                       cfg == NULL,
+                       out_result == NULL,
+                       digest_len_bits,
+                       msg_len);
         return -1;
     }
 
@@ -568,18 +726,25 @@ int ngcc_hash_performance(const ngcc_api_t *api,
     ctx.msg_len = msg_len;
     ctx.digest_len = (size_t) ((digest_len_bits + 7) / 8);
     if (ctx.digest_len == 0) {
+        ngcc_log_error("[hash][performance] invalid digest length: digest_len_bits=%d digest_len_bytes=%zu",
+                       digest_len_bits,
+                       ctx.digest_len);
         return -1;
     }
 
     ctx.msg = (unsigned char *) calloc(1, ctx.msg_len);
     ctx.digest = (unsigned char *) calloc(1, ctx.digest_len);
     if (ctx.msg == NULL || ctx.digest == NULL) {
+        ngcc_log_error("[hash][performance] allocation failed: msg_len=%zu digest_len=%zu",
+                       ctx.msg_len,
+                       ctx.digest_len);
         free(ctx.msg);
         free(ctx.digest);
         return -1;
     }
 
     if (ngcc_fill_random(ctx.msg, ctx.msg_len) != 0) {
+        ngcc_log_error("[hash][performance] failed to fill random message: msg_len=%zu", ctx.msg_len);
         free(ctx.msg);
         free(ctx.digest);
         return -1;
@@ -588,6 +753,10 @@ int ngcc_hash_performance(const ngcc_api_t *api,
     local_cfg = *cfg;
     local_cfg.bytes_per_op = (unsigned long long) msg_len;
     if (ngcc_run_performance_op(&local_cfg, hash_perf_op, &ctx, out_result) != 0) {
+        ngcc_log_error("[hash][performance] benchmark failed: digest_len_bits=%d msg_len=%zu iterations=%llu",
+                       digest_len_bits,
+                       msg_len,
+                       cfg->iterations);
         free(ctx.msg);
         free(ctx.digest);
         return -1;

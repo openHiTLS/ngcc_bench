@@ -7,12 +7,13 @@
 
 /* TEST_MASK_* constants live in cli_types.h */
 #include "cli_types.h"
+#include "ngcc_log.h"
 
 static int load_symbol(void *handle, const char *name, void **fn_ptr) {
     dlerror();
     *fn_ptr = dlsym(handle, name);
     if (dlerror() != NULL || *fn_ptr == NULL) {
-        fprintf(stderr, "[ERROR][loader] missing symbol: %s\n", name);
+        ngcc_log_error("[loader] missing symbol: %s", name);
         return -1;
     }
     return 0;
@@ -72,12 +73,11 @@ static int load_kex_symbols(void *handle, ngcc_api_t *api) {
 
     passes = api->kex_get_passes_num();
     if (passes < NGCC_KEX_MIN_PASSES || passes > NGCC_KEX_MAX_PASSES) {
-        fprintf(stderr,
-                "[ERROR][loader] kex_get_passes_num returned invalid value: %llu "
-                "(expected %llu..%llu)\n",
-                passes,
-                NGCC_KEX_MIN_PASSES,
-                NGCC_KEX_MAX_PASSES);
+        ngcc_log_error("[loader] kex_get_passes_num returned invalid value: %llu "
+                       "(expected %llu..%llu)",
+                       passes,
+                       NGCC_KEX_MIN_PASSES,
+                       NGCC_KEX_MAX_PASSES);
         return -1;
     }
 
@@ -92,6 +92,7 @@ static int load_kex_symbols(void *handle, ngcc_api_t *api) {
     if (passes > 1) {
         api->kex_pass_fns = (kex_pass_fn_t *) calloc((size_t) (passes - 1), sizeof(kex_pass_fn_t));
         if (api->kex_pass_fns == NULL) {
+            ngcc_log_error("[loader] failed to allocate KEX pass function table for %llu passes", passes);
             return -1;
         }
         for (i = 2; i <= passes; ++i) {
@@ -124,7 +125,7 @@ int ngcc_load_library(const char *lib_path, unsigned int test_mask,
 
     handle = dlopen(lib_path, RTLD_NOW);
     if (handle == NULL) {
-        fprintf(stderr, "[ERROR][loader] dlopen failed: %s\n", dlerror());
+        ngcc_log_error("[loader] dlopen failed for %s: %s", lib_path, dlerror());
         return -1;
     }
 

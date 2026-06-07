@@ -120,6 +120,24 @@ static int read_text_file(const char *path, char **out_data) {
     return 0;
 }
 
+static int write_text_file(const char *path, const char *data) {
+    FILE *fp;
+
+    if (path == NULL || data == NULL) {
+        return -1;
+    }
+
+    fp = fopen(path, "wb");
+    if (fp == NULL) {
+        return -1;
+    }
+    if (fputs(data, fp) < 0) {
+        fclose(fp);
+        return -1;
+    }
+    return fclose(fp) == 0 ? 0 : -1;
+}
+
 /* ── stats_util tests ─────────────────────────────────────────── */
 
 static void test_stats_single_value(void) {
@@ -432,6 +450,21 @@ static int test_hash_no_write(int digest_len_bits,
     return 0;
 }
 
+static int test_hash_xor(int digest_len_bits,
+                         const unsigned char *msg,
+                         unsigned long long msg_len_bits,
+                         unsigned char *digest) {
+    unsigned long long msg_len = msg_len_bits / 8ULL;
+    unsigned char acc = (unsigned char) digest_len_bits;
+    unsigned long long i;
+
+    for (i = 0; i < msg_len; ++i) {
+        acc ^= msg[i];
+    }
+    digest[0] = acc;
+    return 0;
+}
+
 static void test_hash_correctness_rejects_no_write_digest(void) {
     ngcc_api_t api;
 
@@ -439,6 +472,61 @@ static void test_hash_correctness_rejects_no_write_digest(void) {
     api.CryptHash = test_hash_no_write;
 
     TEST_ASSERT_INT_EQ(ngcc_hash_correctness(&api, 64, 16), -1);
+}
+
+static void test_hash_kat_rejects_short_msg_for_msg_len(void) {
+    char tmp_dir[] = "/tmp/ngcc_unit_hash_kat.XXXXXX";
+    char kat_212_path[PATH_MAX];
+    char kat_223_path[PATH_MAX];
+    char kat_233_path[PATH_MAX];
+    char kat_loop_path[PATH_MAX];
+    ngcc_api_t api;
+    unsigned long long total = 0;
+    unsigned long long passed = 0;
+    unsigned long long failed = 0;
+
+    static const char *const bad_short_msg =
+        "COUNT = 0\n"
+        "Msg_Len = 16\n"
+        "Msg = 00\n"
+        "Dst_Len = 8\n"
+        "Dst = 08\n";
+    static const char *const valid_vector =
+        "COUNT = 0\n"
+        "Msg_Len = 8\n"
+        "Msg = 00\n"
+        "Dst_Len = 8\n"
+        "Dst = 08\n";
+    static const char *const valid_loop =
+        "COUNT = 0\n"
+        "Msg_Len = 8\n"
+        "Msg = 00\n"
+        "Dst_Len = 8\n"
+        "Dst = 00\n";
+
+    memset(&api, 0, sizeof(api));
+    api.CryptHash = test_hash_xor;
+
+    TEST_ASSERT(mkdtemp(tmp_dir) != NULL);
+    TEST_ASSERT(snprintf(kat_212_path, sizeof(kat_212_path), "%s/KAT_2_12_short.txt", tmp_dir) < (int) sizeof(kat_212_path));
+    TEST_ASSERT(snprintf(kat_223_path, sizeof(kat_223_path), "%s/KAT_2_23_valid.txt", tmp_dir) < (int) sizeof(kat_223_path));
+    TEST_ASSERT(snprintf(kat_233_path, sizeof(kat_233_path), "%s/KAT_2_33_valid.txt", tmp_dir) < (int) sizeof(kat_233_path));
+    TEST_ASSERT(snprintf(kat_loop_path, sizeof(kat_loop_path), "%s/KAT_Loop_valid.txt", tmp_dir) < (int) sizeof(kat_loop_path));
+
+    TEST_ASSERT_INT_EQ(write_text_file(kat_212_path, bad_short_msg), 0);
+    TEST_ASSERT_INT_EQ(write_text_file(kat_223_path, valid_vector), 0);
+    TEST_ASSERT_INT_EQ(write_text_file(kat_233_path, valid_vector), 0);
+    TEST_ASSERT_INT_EQ(write_text_file(kat_loop_path, valid_loop), 0);
+
+    TEST_ASSERT_INT_EQ(ngcc_hash_correctness_kat_file(&api, 8, tmp_dir, &total, &passed, &failed), -1);
+    TEST_ASSERT(total >= 4);
+    TEST_ASSERT(failed >= 1);
+
+    TEST_ASSERT(unlink(kat_212_path) == 0);
+    TEST_ASSERT(unlink(kat_223_path) == 0);
+    TEST_ASSERT(unlink(kat_233_path) == 0);
+    TEST_ASSERT(unlink(kat_loop_path) == 0);
+    TEST_ASSERT(rmdir(tmp_dir) == 0);
 }
 
 /* ── KEM performance length validation tests ───────────────────── */
@@ -666,6 +754,16 @@ static int test_kex_init_a_valid(unsigned char *pka, unsigned long long *pka_len
     return 0;
 }
 
+static int test_kex_init_a_bad_pka_len(unsigned char *pka, unsigned long long *pka_len_bytes,
+                                       unsigned char *ska, unsigned long long *ska_len_bytes,
+                                       unsigned char *sta, unsigned long long *sta_len_bytes) {
+    if (test_kex_init_a_valid(pka, pka_len_bytes, ska, ska_len_bytes, sta, sta_len_bytes) != 0) {
+        return -1;
+    }
+    *pka_len_bytes = TEST_KEX_CAP + 1ULL;
+    return 0;
+}
+
 static int test_kex_init_b_valid(unsigned char *pkb, unsigned long long *pkb_len_bytes,
                                  unsigned char *skb, unsigned long long *skb_len_bytes,
                                  unsigned char *stb, unsigned long long *stb_len_bytes) {
@@ -693,6 +791,17 @@ static int test_kex_pass1_valid(unsigned char *sk, unsigned long long sk_len,
     return 0;
 }
 
+static int test_kex_pass1_bad_msg_len(unsigned char *sk, unsigned long long sk_len,
+                                      unsigned char *pk, unsigned long long pk_len,
+                                      unsigned char *st, unsigned long long *st_len,
+                                      unsigned char *m_out, unsigned long long *m_out_len) {
+    if (test_kex_pass1_valid(sk, sk_len, pk, pk_len, st, st_len, m_out, m_out_len) != 0) {
+        return -1;
+    }
+    *m_out_len = TEST_KEX_CAP + 1ULL;
+    return 0;
+}
+
 static int test_kex_pass2_valid(unsigned char *sk, unsigned long long sk_len,
                                 unsigned char *pk, unsigned long long pk_len,
                                 unsigned char *m_in, unsigned long long m_in_len,
@@ -711,6 +820,18 @@ static int test_kex_pass2_valid(unsigned char *sk, unsigned long long sk_len,
     return 0;
 }
 
+static int test_kex_pass2_bad_msg_len(unsigned char *sk, unsigned long long sk_len,
+                                      unsigned char *pk, unsigned long long pk_len,
+                                      unsigned char *m_in, unsigned long long m_in_len,
+                                      unsigned char *st, unsigned long long *st_len,
+                                      unsigned char *m_out, unsigned long long *m_out_len) {
+    if (test_kex_pass2_valid(sk, sk_len, pk, pk_len, m_in, m_in_len, st, st_len, m_out, m_out_len) != 0) {
+        return -1;
+    }
+    *m_out_len = TEST_KEX_CAP + 1ULL;
+    return 0;
+}
+
 static int test_kex_derive_ss_a_no_write(unsigned char *ska, unsigned long long ska_len_bytes,
                                          unsigned char *pkb, unsigned long long pkb_len_bytes,
                                          unsigned char *mb, unsigned long long mb_len_bytes,
@@ -726,6 +847,24 @@ static int test_kex_derive_ss_a_no_write(unsigned char *ska, unsigned long long 
     (void) sta_len_bytes;
     (void) ssa;
     *ssa_len_bytes = TEST_KEX_CAP;
+    return 0;
+}
+
+static int test_kex_derive_ss_a_bad_len(unsigned char *ska, unsigned long long ska_len_bytes,
+                                        unsigned char *pkb, unsigned long long pkb_len_bytes,
+                                        unsigned char *mb, unsigned long long mb_len_bytes,
+                                        unsigned char *sta, unsigned long long sta_len_bytes,
+                                        unsigned char *ssa, unsigned long long *ssa_len_bytes) {
+    (void) ska;
+    (void) ska_len_bytes;
+    (void) pkb;
+    (void) pkb_len_bytes;
+    (void) mb;
+    (void) mb_len_bytes;
+    (void) sta;
+    (void) sta_len_bytes;
+    memset(ssa, 0x44, (size_t) TEST_KEX_CAP);
+    *ssa_len_bytes = TEST_KEX_CAP + 1ULL;
     return 0;
 }
 
@@ -751,6 +890,10 @@ static kex_pass_fn_t test_kex_pass_fns[] = {
     test_kex_pass2_valid
 };
 
+static kex_pass_fn_t test_kex_bad_pass_fns[] = {
+    test_kex_pass2_bad_msg_len
+};
+
 static void init_test_kex_no_write_api(ngcc_api_t *api) {
     memset(api, 0, sizeof(*api));
     api->kex_get_passes_num = test_kex_get_passes_num;
@@ -767,6 +910,13 @@ static void init_test_kex_no_write_api(ngcc_api_t *api) {
     api->kex_pass_fns = test_kex_pass_fns;
     api->kex_derive_ss_a = test_kex_derive_ss_a_no_write;
     api->kex_derive_ss_b = test_kex_derive_ss_b_no_write;
+}
+
+static ngcc_perf_config_t test_kex_perf_config(void) {
+    ngcc_perf_config_t cfg;
+    cfg.iterations = 1;
+    cfg.bytes_per_op = 0;
+    return cfg;
 }
 
 static void test_kex_correctness_rejects_no_write_shared_secret(void) {
@@ -788,7 +938,7 @@ static void test_kex_correctness_rejects_one_pass(void) {
 
 static void test_kex_derive_performance_rejects_one_pass(void) {
     ngcc_api_t api;
-    ngcc_perf_config_t cfg;
+    ngcc_perf_config_t cfg = test_kex_perf_config();
     ngcc_perf_result_t out_a;
     ngcc_perf_result_t out_b;
 
@@ -796,8 +946,62 @@ static void test_kex_derive_performance_rejects_one_pass(void) {
     memset(&out_a, 0, sizeof(out_a));
     memset(&out_b, 0, sizeof(out_b));
     api.kex_passes_num = NGCC_KEX_MIN_PASSES - 1ULL;
-    cfg.iterations = 1;
-    cfg.bytes_per_op = 0;
+
+    TEST_ASSERT_INT_EQ(ngcc_kex_derive_ss_performance(&api, &cfg, &out_a, &out_b), -1);
+}
+
+static void test_kex_derive_performance_rejects_bad_init_length(void) {
+    ngcc_api_t api;
+    ngcc_perf_config_t cfg = test_kex_perf_config();
+    ngcc_perf_result_t out_a;
+    ngcc_perf_result_t out_b;
+
+    memset(&out_a, 0, sizeof(out_a));
+    memset(&out_b, 0, sizeof(out_b));
+    init_test_kex_no_write_api(&api);
+    api.kex_init_a = test_kex_init_a_bad_pka_len;
+
+    TEST_ASSERT_INT_EQ(ngcc_kex_derive_ss_performance(&api, &cfg, &out_a, &out_b), -1);
+}
+
+static void test_kex_derive_performance_rejects_bad_pass1_length(void) {
+    ngcc_api_t api;
+    ngcc_perf_config_t cfg = test_kex_perf_config();
+    ngcc_perf_result_t out_a;
+    ngcc_perf_result_t out_b;
+
+    memset(&out_a, 0, sizeof(out_a));
+    memset(&out_b, 0, sizeof(out_b));
+    init_test_kex_no_write_api(&api);
+    api.kex_pass1_fn = test_kex_pass1_bad_msg_len;
+
+    TEST_ASSERT_INT_EQ(ngcc_kex_derive_ss_performance(&api, &cfg, &out_a, &out_b), -1);
+}
+
+static void test_kex_derive_performance_rejects_bad_pass2_length(void) {
+    ngcc_api_t api;
+    ngcc_perf_config_t cfg = test_kex_perf_config();
+    ngcc_perf_result_t out_a;
+    ngcc_perf_result_t out_b;
+
+    memset(&out_a, 0, sizeof(out_a));
+    memset(&out_b, 0, sizeof(out_b));
+    init_test_kex_no_write_api(&api);
+    api.kex_pass_fns = test_kex_bad_pass_fns;
+
+    TEST_ASSERT_INT_EQ(ngcc_kex_derive_ss_performance(&api, &cfg, &out_a, &out_b), -1);
+}
+
+static void test_kex_derive_performance_rejects_bad_derive_length(void) {
+    ngcc_api_t api;
+    ngcc_perf_config_t cfg = test_kex_perf_config();
+    ngcc_perf_result_t out_a;
+    ngcc_perf_result_t out_b;
+
+    memset(&out_a, 0, sizeof(out_a));
+    memset(&out_b, 0, sizeof(out_b));
+    init_test_kex_no_write_api(&api);
+    api.kex_derive_ss_a = test_kex_derive_ss_a_bad_len;
 
     TEST_ASSERT_INT_EQ(ngcc_kex_derive_ss_performance(&api, &cfg, &out_a, &out_b), -1);
 }
@@ -1055,10 +1259,15 @@ int main(void) {
 
     /* correctness sentinels */
     RUN_TEST(test_hash_correctness_rejects_no_write_digest);
+    RUN_TEST(test_hash_kat_rejects_short_msg_for_msg_len);
     RUN_TEST(test_kem_correctness_rejects_no_write_shared_secret);
     RUN_TEST(test_kex_correctness_rejects_no_write_shared_secret);
     RUN_TEST(test_kex_correctness_rejects_one_pass);
     RUN_TEST(test_kex_derive_performance_rejects_one_pass);
+    RUN_TEST(test_kex_derive_performance_rejects_bad_init_length);
+    RUN_TEST(test_kex_derive_performance_rejects_bad_pass1_length);
+    RUN_TEST(test_kex_derive_performance_rejects_bad_pass2_length);
+    RUN_TEST(test_kex_derive_performance_rejects_bad_derive_length);
 
     /* KEM performance length validation */
     RUN_TEST(test_kem_keygen_performance_rejects_bad_lengths);

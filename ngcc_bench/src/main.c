@@ -12,6 +12,7 @@
 #include "json_report.h"
 #include "loader.h"
 #include "mem_stat.h"
+#include "ngcc_log.h"
 #include "stability.h"
 
 /* ── Shared test table ─────────────────────────────────────────── */
@@ -173,12 +174,14 @@ static int run_correctness_for_test(const ngcc_api_t *api,
                                       &failed);
 
         if (kat_rc == 0 || kat_rc < 0) {
-            printf("[%s][correctness] %s total=%llu passed=%llu failed=%llu source=kat\n",
-                   test->name,
-                   kat_rc == 0 ? "PASS" : "FAIL",
-                   total,
-                   passed,
-                   failed);
+            if (kat_rc != 0) {
+                ngcc_log_error("[correctness][%s][kat] failed: total=%llu passed=%llu failed=%llu path=%s",
+                               test->name,
+                               total,
+                               passed,
+                               failed,
+                               opts->kat_path);
+            }
             if (report != NULL) {
                 report->correctness_status = (kat_rc == 0) ? STATUS_PASS : STATUS_FAIL;
                 report->kat_used = 1;
@@ -188,87 +191,20 @@ static int run_correctness_for_test(const ngcc_api_t *api,
             }
             return kat_rc;
         }
-
-        printf("[%s][correctness] KAT_NO_VECTOR fallback=random\n", test->name);
     }
 
     rc = dispatch->correctness_fn(api, opts->digest_len_bits, k_msg_lens[0]);
-    printf("[%s][correctness] %s\n", test->name, rc == 0 ? "PASS" : "FAIL");
+    if (rc != 0) {
+        ngcc_log_error("[correctness][%s] failed: digest_len_bits=%d msg_len=%zu rc=%d",
+                       test->name,
+                       opts->digest_len_bits,
+                       k_msg_lens[0],
+                       rc);
+    }
     if (report != NULL) {
         report->correctness_status = (rc == 0) ? STATUS_PASS : STATUS_FAIL;
     }
     return rc;
-}
-
-static void print_perf_result(const char *prefix, size_t msg_len,
-                              const ngcc_perf_result_t *result, int is_hash) {
-    if (is_hash) {
-        printf("[%s][performance][%zuB] ops=%llu warmup=%llu elapsed_ms=%.3f bytes/op=%.0f\n",
-               prefix, msg_len,
-               result->iterations,
-               result->warmup_iterations,
-               result->elapsed_ms,
-               result->bytes_per_op);
-    } else {
-        printf("[%s][performance] ops=%llu warmup=%llu elapsed_ms=%.3f\n",
-               prefix,
-               result->iterations,
-               result->warmup_iterations,
-               result->elapsed_ms);
-    }
-    if (result->cycles_available) {
-        if (is_hash) {
-            /* Hash: report cycles per byte */
-            printf("[%s][performance][%zuB][cycles] min=%.3f mean=%.3f median=%.3f max=%.3f stddev=%.3f cv=%.3f%% per_byte=%.3f\n",
-                   prefix, msg_len,
-                   result->cycles_min,
-                   result->cycles_per_op,
-                   result->cycles_median,
-                   result->cycles_max,
-                   result->cycles_stddev,
-                   result->cycles_cv_percent,
-                   result->cycles_per_byte);
-        } else {
-            /* Pubkey: report cycles per op */
-            printf("[%s][performance][cycles] min=%.3f mean=%.3f median=%.3f max=%.3f stddev=%.3f cv=%.3f%%\n",
-                   prefix,
-                   result->cycles_min,
-                   result->cycles_per_op,
-                   result->cycles_median,
-                   result->cycles_max,
-                   result->cycles_stddev,
-                   result->cycles_cv_percent);
-        }
-    } else {
-        if (is_hash) {
-            printf("[%s][performance][%zuB][cycles] unavailable\n", prefix, msg_len);
-        } else {
-            printf("[%s][performance][cycles] unavailable\n", prefix);
-        }
-    }
-    if (is_hash) {
-        /* Hash: byte throughput (bytes/s) */
-        printf("[%s][performance][%zuB][throughput] bytes/s=%.3f\n",
-               prefix, msg_len,
-               result->bytes_per_sec);
-        printf("[%s][performance][%zuB][time] mean_ms=%.6f median_ms=%.6f stddev_ms=%.6f cv=%.3f%%\n",
-               prefix, msg_len,
-               result->time_ms_mean,
-               result->time_ms_median,
-               result->time_ms_stddev,
-               result->time_ms_cv_percent);
-    } else {
-        /* Pubkey: operation throughput (ops/s) */
-        printf("[%s][performance][throughput] ops/s=%.3f\n",
-               prefix,
-               result->ops_per_sec);
-        printf("[%s][performance][time] mean_ms=%.6f median_ms=%.6f stddev_ms=%.6f cv=%.3f%%\n",
-               prefix,
-               result->time_ms_mean,
-               result->time_ms_median,
-               result->time_ms_stddev,
-               result->time_ms_cv_percent);
-    }
 }
 
 static int run_sig_sub_performance(const ngcc_api_t *api,
@@ -283,10 +219,11 @@ static int run_sig_sub_performance(const ngcc_api_t *api,
     /* keygen */
     rc = ngcc_sig_keygen_performance(api, cfg, &result);
     if (rc != 0) {
-        printf("[sig][keygen][performance] FAIL\n");
+        ngcc_log_error("[performance][sig][keygen] failed: iterations=%llu rc=%d",
+                       cfg != NULL ? cfg->iterations : 0ULL,
+                       rc);
         any_fail = 1;
     } else {
-        print_perf_result("sig][keygen", 0, &result, 0);
         if (report != NULL) {
             report->performance[idx] = result;
             report->performance_labels[idx] = "\u5bc6\u94a5\u751f\u6210";
@@ -298,10 +235,12 @@ static int run_sig_sub_performance(const ngcc_api_t *api,
     /* sign */
     rc = ngcc_sig_sign_performance(api, sig_msg_len, cfg, &result);
     if (rc != 0) {
-        printf("[sig][sign][performance][%zuB] FAIL\n", sig_msg_len);
+        ngcc_log_error("[performance][sig][sign] failed: msg_len=%zu iterations=%llu rc=%d",
+                       sig_msg_len,
+                       cfg != NULL ? cfg->iterations : 0ULL,
+                       rc);
         any_fail = 1;
     } else {
-        print_perf_result("sig][sign", sig_msg_len, &result, 0);
         if (report != NULL) {
             report->performance[idx] = result;
             report->performance_labels[idx] = "\u7b7e\u540d";
@@ -313,10 +252,12 @@ static int run_sig_sub_performance(const ngcc_api_t *api,
     /* verify */
     rc = ngcc_sig_verify_performance(api, sig_msg_len, cfg, &result);
     if (rc != 0) {
-        printf("[sig][verify][performance][%zuB] FAIL\n", sig_msg_len);
+        ngcc_log_error("[performance][sig][verify] failed: msg_len=%zu iterations=%llu rc=%d",
+                       sig_msg_len,
+                       cfg != NULL ? cfg->iterations : 0ULL,
+                       rc);
         any_fail = 1;
     } else {
-        print_perf_result("sig][verify", sig_msg_len, &result, 0);
         if (report != NULL) {
             report->performance[idx] = result;
             report->performance_labels[idx] = "\u9a8c\u7b7e";
@@ -334,7 +275,6 @@ static int run_sig_sub_performance(const ngcc_api_t *api,
 static int run_kem_sub_performance(const ngcc_api_t *api,
                                    const ngcc_perf_config_t *cfg,
                                    test_report_t *report) {
-    static const char *const sub_names[] = {"kem][keygen", "kem][encap", "kem][decap"};
     static const char *const labels[] = {"\u5bc6\u94a5\u751f\u6210", "\u5c01\u88c5", "\u89e3\u5c01\u88c5"};
     static const char *const labels_en[] = {"keygen", "encap", "decap"};
     ngcc_perf_result_t result;
@@ -352,11 +292,13 @@ static int run_kem_sub_performance(const ngcc_api_t *api,
     for (si = 0; si < 3; ++si) {
         int rc = sub_fns[si](api, cfg, &result);
         if (rc != 0) {
-            printf("[%s][performance] FAIL\n", sub_names[si]);
+            ngcc_log_error("[performance][kem][%s] failed: iterations=%llu rc=%d",
+                           labels_en[si],
+                           cfg != NULL ? cfg->iterations : 0ULL,
+                           rc);
             any_fail = 1;
             continue;
         }
-        print_perf_result(sub_names[si], 0, &result, 0);
         if (report != NULL) {
             report->performance[idx] = result;
             report->performance_labels[idx] = labels[si];
@@ -376,11 +318,11 @@ static int run_kex_sub_performance(const ngcc_api_t *api,
     ngcc_perf_result_t result_a, result_b;
     int rc = ngcc_kex_derive_ss_performance(api, cfg, &result_a, &result_b);
     if (rc != 0) {
-        printf("[kex][performance] FAIL\n");
+        ngcc_log_error("[performance][kex][derive_ss] failed: iterations=%llu rc=%d",
+                       cfg != NULL ? cfg->iterations : 0ULL,
+                       rc);
         return -1;
     }
-    print_perf_result("kex][derive_ss_a", 0, &result_a, 0);
-    print_perf_result("kex][derive_ss_b", 0, &result_b, 0);
     if (report != NULL) {
         report->performance[0] = result_a;
         report->performance_labels[0] = "\u5bc6\u94a5\u534f\u5546A";
@@ -444,12 +386,15 @@ static int run_performance_for_test(const ngcc_api_t *api,
         rc = dispatch->performance_fn(api, digest_bits, msg_len, &cfg, &result);
 
         if (rc != 0) {
-            printf("[%s][performance][%zuB] FAIL\n", test->name, msg_len);
+            ngcc_log_error("[performance][%s] failed: msg_len=%zu digest_len_bits=%d iterations=%llu rc=%d",
+                           test->name,
+                           msg_len,
+                           digest_bits,
+                           cfg.iterations,
+                           rc);
             any_fail = 1;
             continue;
         }
-
-        print_perf_result(test->name, msg_len, &result, 1);
 
         if (report != NULL) {
             char *label = (char *) malloc(16);
@@ -494,67 +439,8 @@ static int run_stability_for_test(const ngcc_api_t *api,
                             &result);
 
     if (rc == 0) {
-        const char *status = result.interrupted ? "STOPPED" : result.status;
         if (!result.interrupted && strcmp(result.status, "UNSTABLE") == 0) {
             unstable_fail = 1;
-        }
-        printf("[%s][stability] %s cases=%llu samples=%llu elapsed_s=%.3f\n",
-               test->name,
-               status,
-               result.cases_run,
-               result.sample_count,
-               result.elapsed_seconds);
-        printf("[%s][stability][throughput] mean=%.3f stddev=%.3f cv=%.3f%% min=%.3f max=%.3f\n",
-               test->name,
-               result.throughput_mean_ops,
-               result.throughput_stddev_ops,
-               result.throughput_cv_percent,
-               result.throughput_min_ops,
-               result.throughput_max_ops);
-        if (result.bytes_per_case > 0.0) {
-            printf("[%s][stability][throughput_bytes] mean=%.3f stddev=%.3f cv=%.3f%% min=%.3f max=%.3f bytes/case=%.3f\n",
-                   test->name,
-                   result.throughput_mean_bytes,
-                   result.throughput_stddev_bytes,
-                   result.throughput_cv_percent_bytes,
-                   result.throughput_min_bytes,
-                   result.throughput_max_bytes,
-                   result.bytes_per_case);
-        }
-        if (result.cycles_available) {
-            printf("[%s][stability][cycles] mean=%.3f stddev=%.3f cv=%.3f%% min=%.3f max=%.3f\n",
-                   test->name,
-                   result.cycles_mean,
-                   result.cycles_stddev,
-                   result.cycles_cv_percent,
-                   result.cycles_min,
-                   result.cycles_max);
-        } else {
-            printf("[%s][stability][cycles] unavailable\n", test->name);
-        }
-        printf("[%s][stability][time] mean_ms=%.6f stddev_ms=%.6f cv=%.3f%% min_ms=%.6f max_ms=%.6f\n",
-               test->name,
-               result.time_mean_ms,
-               result.time_stddev_ms,
-               result.time_cv_percent,
-               result.time_min_ms,
-               result.time_max_ms);
-        printf("[%s][stability][memory] start=%llu end=%llu min=%llu max=%llu peak_rss=%llu growth=%.3f%%\n",
-               test->name,
-               (unsigned long long) result.memory_start_bytes,
-               (unsigned long long) result.memory_end_bytes,
-               (unsigned long long) result.memory_min_bytes,
-               (unsigned long long) result.memory_max_bytes,
-               (unsigned long long) result.memory_peak_rss_bytes,
-               result.memory_growth_percent);
-        printf("[%s][stability][errors] total=%llu failed=%llu rate=%.6f%% status=%s\n",
-               test->name,
-               result.total_executions,
-               result.error_count,
-               result.error_rate_percent,
-               result.status);
-        if (result.failure_reasons[0] != '\0') {
-            printf("[%s][stability][reason] %s\n", test->name, result.failure_reasons);
         }
         if (report != NULL) {
             report->stability = result;
@@ -567,18 +453,27 @@ static int run_stability_for_test(const ngcc_api_t *api,
             }
         }
     } else {
-        printf("[%s][stability] FAIL cases=%llu samples=%llu elapsed_s=%.3f\n",
-               test->name,
-               result.cases_run,
-               result.sample_count,
-               result.elapsed_seconds);
         if (report != NULL) {
             report->stability = result;
             report->stability_status = STATUS_FAIL;
         }
+        ngcc_log_error("[stability][%s] failed: rc=%d cases_run=%llu errors=%llu status=%s reasons=%s",
+                       test->name,
+                       rc,
+                       result.cases_run,
+                       result.error_count,
+                       result.status,
+                       result.failure_reasons);
     }
 
     if (rc == 0 && unstable_fail) {
+        ngcc_log_error("[stability][%s] unstable: cases_run=%llu samples=%llu errors=%llu error_rate=%.6f%% reasons=%s",
+                       test->name,
+                       result.cases_run,
+                       result.sample_count,
+                       result.error_count,
+                       result.error_rate_percent,
+                       result.failure_reasons);
         return -1;
     }
     return rc;
@@ -592,24 +487,18 @@ static int run_memory_mode(const ngcc_api_t *api,
     int failed = 0;
 
     /* static memory: ELF segment sizes of the algorithm library (shared) */
-    if (ngcc_mem_analyze_static(opts->lib_path, &static_mem) == 0) {
-        printf("[memory][static] text=%llu data=%llu bss=%llu rodata=%llu total=%llu\n",
-               (unsigned long long) static_mem.text_size,
-               (unsigned long long) static_mem.data_size,
-               (unsigned long long) static_mem.bss_size,
-               (unsigned long long) static_mem.rodata_size,
-               (unsigned long long) static_mem.total);
-    } else {
-        printf("[memory][static] unavailable\n");
+    if (ngcc_mem_analyze_static(opts->lib_path, &static_mem) != 0) {
+        ngcc_log_warning("[memory] static memory analysis failed: lib=%s", opts->lib_path);
         memset(&static_mem, 0, sizeof(static_mem));
     }
     report->static_mem = static_mem;
 
-    /* dynamic memory: measure heap per-algorithm */
+/* dynamic memory: measure heap + peak memory per-algorithm */
     for (i = 0; i < sizeof(k_tests) / sizeof(k_tests[0]); ++i) {
         int digest_bits = 0;
         uint64_t heap_baseline;
         uint64_t heap_end;
+        uint64_t heap_delta;
         int rc;
 
         if ((opts->test_mask & k_tests[i].mask) == 0) {
@@ -623,17 +512,20 @@ static int run_memory_mode(const ngcc_api_t *api,
         rc = k_test_dispatch[i].correctness_fn(api, digest_bits, k_msg_lens[0]);
         heap_end = ngcc_mem_heap_bytes();
 
-        printf("[%s][memory][dynamic] heap_baseline=%llu heap_after=%llu heap_delta=%lld\n",
-               k_tests[i].name,
-               (unsigned long long) heap_baseline,
-               (unsigned long long) heap_end,
-               (long long) heap_end - (long long) heap_baseline);
-
         report->tests[i].heap_baseline_bytes = heap_baseline;
         report->tests[i].heap_peak_bytes = heap_end;
+        heap_delta = (heap_end > heap_baseline) ? (heap_end - heap_baseline) : 0;
+        report->tests[i].peak_memory_bytes = static_mem.total + heap_delta;
         report->tests[i].memory_status = (rc == 0) ? STATUS_PASS : STATUS_FAIL;
 
         if (rc != 0) {
+            ngcc_log_error("[memory][%s] dynamic memory correctness probe failed: digest_len_bits=%d msg_len=%zu rc=%d heap_baseline=%llu heap_end=%llu",
+                           k_tests[i].name,
+                           digest_bits,
+                           k_msg_lens[0],
+                           rc,
+                           (unsigned long long) heap_baseline,
+                           (unsigned long long) heap_end);
             failed = 1;
         }
     }
@@ -695,7 +587,7 @@ int main(int argc, char **argv) {
     }
 
     if (ngcc_load_library(opts.lib_path, opts.test_mask, &lib) != 0) {
-        fprintf(stderr, "[ERROR][main] failed to load library: %s\n", opts.lib_path);
+        ngcc_log_error("[main] failed to load library: %s", opts.lib_path);
         return 1;
     }
 
@@ -704,50 +596,86 @@ int main(int argc, char **argv) {
     }
 
     if (opts.mode_mask & MODE_MASK_CORRECTNESS) {
+        int correctness_failed = 0;
+        printf("[correctness] BEGIN\n");
+        fflush(stdout);
         for (i = 0; i < sizeof(k_tests) / sizeof(k_tests[0]); ++i) {
             if ((opts.test_mask & k_tests[i].mask) == 0) {
                 continue;
             }
             if (run_correctness_for_test(&lib.api, i, &opts, &report.tests[i]) != 0) {
-                failed = 1;
+                correctness_failed = 1;
             }
+        }
+        printf("[correctness] END status=%s\n", correctness_failed ? "FAIL" : "PASS");
+        fflush(stdout);
+        if (correctness_failed) {
+            ngcc_log_error("[correctness] stage failed");
+            failed = 1;
         }
     }
 
     if (opts.mode_mask & MODE_MASK_PERFORMANCE) {
+        int performance_failed = 0;
+        printf("[performance] BEGIN\n");
+        fflush(stdout);
         for (i = 0; i < sizeof(k_tests) / sizeof(k_tests[0]); ++i) {
             if ((opts.test_mask & k_tests[i].mask) == 0) {
                 continue;
             }
             if (run_performance_for_test(&lib.api, i, &opts, &report.tests[i]) != 0) {
-                failed = 1;
+                performance_failed = 1;
             }
+        }
+        printf("[performance] END status=%s\n", performance_failed ? "FAIL" : "PASS");
+        fflush(stdout);
+        if (performance_failed) {
+            ngcc_log_error("[performance] stage failed");
+            failed = 1;
         }
     }
 
     if (opts.mode_mask & MODE_MASK_MEMORY) {
-        if (run_memory_mode(&lib.api, &opts, &report) != 0) {
+        int memory_failed;
+        printf("[memory] BEGIN\n");
+        fflush(stdout);
+        memory_failed = run_memory_mode(&lib.api, &opts, &report);
+        printf("[memory] END status=%s\n", memory_failed != 0 ? "FAIL" : "PASS");
+        fflush(stdout);
+        if (memory_failed != 0) {
+            ngcc_log_error("[memory] stage failed");
             failed = 1;
         }
     }
 
     if (opts.mode_mask & MODE_MASK_STABILITY) {
+        int stability_failed = 0;
+        printf("[stability] BEGIN\n");
+        fflush(stdout);
         for (i = 0; i < sizeof(k_tests) / sizeof(k_tests[0]); ++i) {
             if ((opts.test_mask & k_tests[i].mask) == 0) {
                 continue;
             }
             if (run_stability_for_test(&lib.api, i, &opts, &report.tests[i]) != 0) {
-                failed = 1;
+                stability_failed = 1;
             }
+        }
+        printf("[stability] END status=%s\n", stability_failed ? "FAIL" : "PASS");
+        fflush(stdout);
+        if (stability_failed) {
+            ngcc_log_error("[stability] stage failed");
+            failed = 1;
         }
     }
 
     if (opts.json_out_path != NULL) {
         if (write_json_reports(&opts, &report, failed) != 0) {
+            ngcc_log_error("[report] failed to write json reports: path=%s", opts.json_out_path);
             failed = 1;
         }
     }
 
     ngcc_unload_library(&lib);
+    ngcc_log_close();
     return failed ? 1 : 0;
 }

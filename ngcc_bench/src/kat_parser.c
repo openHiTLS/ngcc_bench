@@ -72,6 +72,46 @@ static int key_is_metadata(const char *name) {
     return 0;
 }
 
+static char *read_full_line(FILE *fp, size_t *out_len) {
+    size_t cap = 4096;
+    size_t len = 0;
+    char *buf;
+    char *next;
+
+    buf = (char *) malloc(cap);
+    if (buf == NULL) {
+        return NULL;
+    }
+
+    for (;;) {
+        size_t room = cap - len;
+        if (room < 2U) {
+            cap *= 2U;
+            next = (char *) realloc(buf, cap);
+            if (next == NULL) {
+                free(buf);
+                return NULL;
+            }
+            buf = next;
+            room = cap - len;
+        }
+        if (fgets(buf + len, (int) room, fp) == NULL) {
+            if (len == 0U) {
+                free(buf);
+                return NULL;
+            }
+            break;
+        }
+        len += strlen(buf + len);
+        if (len > 0U && buf[len - 1U] == '\n') {
+            break;
+        }
+    }
+
+    *out_len = len;
+    return buf;
+}
+
 static char *dup_string(const char *s) {
     size_t n;
     char *p;
@@ -295,7 +335,8 @@ static int append_vector(ngcc_kat_file_t *kat, const kat_builder_t *builder, siz
 
 int ngcc_kat_parse_file(const char *path, ngcc_kat_file_t *out_kat) {
     FILE *fp;
-    char line[4096];
+    char *line = NULL;
+    size_t line_len = 0;
     kat_builder_t builder;
     ngcc_kat_file_t kat;
     size_t auto_index = 0;
@@ -313,7 +354,7 @@ int ngcc_kat_parse_file(const char *path, ngcc_kat_file_t *out_kat) {
         return -1;
     }
 
-    while (fgets(line, sizeof(line), fp) != NULL) {
+    while ((line = read_full_line(fp, &line_len)) != NULL) {
         char *s = trim(line);
         char *eq;
         char *key;
@@ -322,19 +363,23 @@ int ngcc_kat_parse_file(const char *path, ngcc_kat_file_t *out_kat) {
         if (*s == '\0') {
             if (builder_has_payload(&builder)) {
                 if (append_vector(&kat, &builder, auto_index) != 0) {
+                    free(line);
                     goto out;
                 }
                 auto_index++;
                 builder_clear(&builder);
             }
+            free(line);
             continue;
         }
         if (*s == '#' || *s == ';' || (*s == '/' && s[1] == '/')) {
+            free(line);
             continue;
         }
 
         eq = strchr(s, '=');
         if (eq == NULL) {
+            free(line);
             continue;
         }
 
@@ -342,6 +387,7 @@ int ngcc_kat_parse_file(const char *path, ngcc_kat_file_t *out_kat) {
         key = trim(s);
         value = trim(eq + 1);
         if (*key == '\0') {
+            free(line);
             goto out;
         }
 
@@ -350,11 +396,13 @@ int ngcc_kat_parse_file(const char *path, ngcc_kat_file_t *out_kat) {
             unsigned long v;
 
             if (*value == '\0') {
+                free(line);
                 goto out;
             }
 
             if (builder_has_payload(&builder)) {
                 if (append_vector(&kat, &builder, auto_index) != 0) {
+                    free(line);
                     goto out;
                 }
                 auto_index++;
@@ -363,6 +411,7 @@ int ngcc_kat_parse_file(const char *path, ngcc_kat_file_t *out_kat) {
 
             v = strtoul(value, &end, 10);
             if (end == NULL || *end != '\0') {
+                free(line);
                 goto out;
             }
             builder.count = (unsigned int) v;
@@ -379,10 +428,12 @@ int ngcc_kat_parse_file(const char *path, ngcc_kat_file_t *out_kat) {
                 unsigned char len_buf[8];
 
                 if (*value == '\0') {
+                    free(line);
                     continue;
                 }
                 v = strtoull(value, &end, 10);
                 if (end == NULL || *end != '\0') {
+                    free(line);
                     continue;
                 }
                 len_buf[0] = (unsigned char)((v >> 56) & 0xFF);
@@ -394,24 +445,29 @@ int ngcc_kat_parse_file(const char *path, ngcc_kat_file_t *out_kat) {
                 len_buf[6] = (unsigned char)((v >> 8) & 0xFF);
                 len_buf[7] = (unsigned char)(v & 0xFF);
                 if (builder_set_field(&builder, key, len_buf, 8) != 0) {
+                    free(line);
                     goto out;
                 }
+                free(line);
                 continue;
             }
 
             if (parse_hex_bytes(value, &buf, &len) != 0) {
                 if (key_is_metadata(key)) {
+                    free(line);
                     continue;
                 }
-                /* Ignore non-hex metadata-like lines for broader KAT compatibility. */
+                free(line);
                 continue;
             }
             if (builder_set_field(&builder, key, buf, len) != 0) {
                 free(buf);
+                free(line);
                 goto out;
             }
             free(buf);
         }
+        free(line);
     }
 
     if (builder_has_payload(&builder)) {

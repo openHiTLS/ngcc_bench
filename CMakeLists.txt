@@ -119,6 +119,7 @@ set(NGCC_BENCH_LIB_SOURCES
     ngcc_bench/src/cli_parser.c
     ngcc_bench/src/interactive.c
     ngcc_bench/src/json_report.c
+    ngcc_bench/src/ngcc_log.c
     ngcc_bench/src/loader.c
     ngcc_bench/src/bench_core.c
     ngcc_bench/src/cycle_counter.c

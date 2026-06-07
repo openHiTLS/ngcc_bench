@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "cli_parser.h"
+#include "ngcc_log.h"
 
 #ifndef NGCC_VERSION
 #define NGCC_VERSION "unknown"
@@ -94,7 +95,7 @@ int parse_double_value(const char *s, double *out) {
 
 static int parse_nonnegative_double_option(const char *opt_name, const char *opt_value, double *out) {
     if (parse_double_value(opt_value, out) != 0 || !isfinite(*out) || *out < 0.0) {
-        fprintf(stderr, "invalid --%s value: %s\n", opt_name, opt_value);
+        ngcc_log_error("invalid --%s value: %s", opt_name, opt_value);
         return -1;
     }
     return 0;
@@ -187,35 +188,34 @@ int parse_cli_options(int argc, char **argv, cli_options_t *opts) {
                 break;
             case 't':
                 if (parse_test_mask(optarg, &opts->test_mask) != 0) {
-                    fprintf(stderr, "invalid --test value: %s\n", optarg);
+                    ngcc_log_error("invalid --test value: %s", optarg);
                     return -1;
                 }
                 break;
             case 'm':
                 if (parse_mode_mask(optarg, &opts->mode_mask) != 0) {
-                    fprintf(stderr, "invalid --mode value: %s\n", optarg);
+                    ngcc_log_error("invalid --mode value: %s", optarg);
                     return -1;
                 }
                 break;
             case 'b':
                 if (parse_int_value(optarg, &opts->digest_len_bits) != 0 ||
                     !is_valid_digest_len_bits(opts->digest_len_bits)) {
-                    fprintf(stderr,
-                            "invalid --digest-len-bits value: %s (max %llu bits)\n",
-                            optarg,
-                            NGCC_MAX_BUFFER_LEN * 8ULL);
+                    ngcc_log_error("invalid --digest-len-bits value: %s (max %llu bits)",
+                                   optarg,
+                                   NGCC_MAX_BUFFER_LEN * 8ULL);
                     return -1;
                 }
                 break;
             case 'd':
                 if (parse_double_value(optarg, &opts->duration_hours) != 0 || opts->duration_hours <= 0.0) {
-                    fprintf(stderr, "invalid --duration-hours value: %s\n", optarg);
+                    ngcc_log_error("invalid --duration-hours value: %s", optarg);
                     return -1;
                 }
                 break;
             case 's':
                 if (parse_unsigned_ll(optarg, &opts->stability_max_cases) != 0 || opts->stability_max_cases == 0) {
-                    fprintf(stderr, "invalid --stability-max-cases value: %s\n", optarg);
+                    ngcc_log_error("invalid --stability-max-cases value: %s", optarg);
                     return -1;
                 }
                 break;
@@ -250,26 +250,25 @@ int validate_options(const cli_options_t *opts) {
     }
 
     if (opts->lib_path == NULL) {
-        fprintf(stderr, "error: --lib is required\n");
+        ngcc_log_error("--lib is required");
         return -1;
     }
 
     if (opts->test_mask & TEST_MASK_HASH) {
         if (opts->digest_len_bits <= 0) {
-            fprintf(stderr, "error: --digest-len-bits is required when hash test is selected\n");
+            ngcc_log_error("--digest-len-bits is required when hash test is selected");
             return -1;
         }
         if (!is_valid_digest_len_bits(opts->digest_len_bits)) {
-            fprintf(stderr,
-                    "error: --digest-len-bits exceeds maximum supported digest size (%llu bits)\n",
-                    NGCC_MAX_BUFFER_LEN * 8ULL);
+            ngcc_log_error("--digest-len-bits exceeds maximum supported digest size (%llu bits)",
+                           NGCC_MAX_BUFFER_LEN * 8ULL);
             return -1;
         }
     }
 
     correctness_selected = (opts->mode_mask & MODE_MASK_CORRECTNESS) != 0;
     if (opts->kat_path != NULL && !correctness_selected) {
-        fprintf(stderr, "error: --kat requires correctness mode\n");
+        ngcc_log_error("--kat requires correctness mode");
         return -1;
     }
 
