@@ -481,7 +481,6 @@ int write_json_report(const cli_options_t *opts,
     fputc('\n', fp);
 
     fclose(fp);
-    printf("[report] json=%s\n", out_path);
     return 0;
 }
 
@@ -503,13 +502,24 @@ int write_json_reports(const cli_options_t *opts,
     if (path_zh_len < 0 || path_zh_len >= (int) sizeof(path_zh) ||
         path_en_len < 0 || path_en_len >= (int) sizeof(path_en)) {
         ngcc_log_error("[report] json report path is too long: %s", opts->json_out_path);
+        printf("[report] END status=FAIL path=%s\n", opts->json_out_path);
+        fflush(stdout);
         return -1;
     }
 
     rc = write_json_report(opts, report, overall_failed, LANG_ZH, path_zh);
     if (rc != 0) {
+        printf("[report] END status=FAIL path=%s\n", path_zh);
+        fflush(stdout);
         return rc;
     }
     rc = write_json_report(opts, report, overall_failed, LANG_EN, path_en);
+    if (rc != 0) {
+        printf("[report] END status=FAIL path=%s\n", path_en);
+        fflush(stdout);
+        return rc;
+    }
+    printf("[report] END status=PASS path_zh=%s path_en=%s\n", path_zh, path_en);
+    fflush(stdout);
     return rc;
 }

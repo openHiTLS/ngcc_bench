@@ -336,6 +336,14 @@ static int path_is_directory(const char *path) {
     return S_ISDIR(st.st_mode);
 }
 
+static int path_is_regular_file(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        return 0;
+    }
+    return S_ISREG(st.st_mode);
+}
+
 /* ── KAT_Loop verification ── */
 
 #define KAT_LOOP_ITERATIONS    1000000
@@ -515,6 +523,42 @@ static const char *kat_type_name(kat_file_type_t t) {
     }
 }
 
+static const char *path_basename_hash(const char *path) {
+    const char *base;
+
+    if (path == NULL) {
+        return "";
+    }
+    base = strrchr(path, '/');
+    return base != NULL ? base + 1 : path;
+}
+
+static int verify_hash_kat_one_file(const ngcc_api_t *api,
+                                    int digest_len_bits,
+                                    const char *file_path,
+                                    kat_file_type_t ftype,
+                                    unsigned long long *io_total,
+                                    unsigned long long *io_passed,
+                                    unsigned long long *io_failed) {
+    ngcc_kat_file_t kat;
+    int rc;
+
+    memset(&kat, 0, sizeof(kat));
+    if (ngcc_kat_parse_file(file_path, &kat) != 0) {
+        ngcc_log_error("[hash][kat] failed to parse file: %s", file_path);
+        return -2;
+    }
+
+    if (ftype == KAT_TYPE_LOOP) {
+        rc = verify_kat_loop(api, digest_len_bits, &kat, io_total, io_passed, io_failed);
+    } else {
+        rc = verify_kat_vectors(api, digest_len_bits, &kat, io_total, io_passed, io_failed);
+    }
+
+    ngcc_kat_free(&kat);
+    return rc;
+}
+
 int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
                                    int digest_len_bits,
                                    const char *kat_path,
@@ -538,8 +582,31 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
         return -1;
     }
 
+    if (path_is_regular_file(kat_path)) {
+        kat_file_type_t ftype = classify_kat_file(path_basename_hash(kat_path));
+
+        file_count = 1;
+        int vrc = verify_hash_kat_one_file(api,
+                                           digest_len_bits,
+                                           kat_path,
+                                           ftype,
+                                           &total,
+                                           &passed_count,
+                                           &failed_count);
+
+        rc = (vrc == 0 && total > 0 && failed_count == 0) ? 0 : -1;
+        if (rc != 0) {
+            ngcc_log_error("[hash][kat] verification failed: total=%llu passed=%llu failed=%llu file=%s",
+                           total,
+                           passed_count,
+                           failed_count,
+                           kat_path);
+        }
+        goto done;
+    }
+
     if (!path_is_directory(kat_path)) {
-        ngcc_log_error("[hash][kat] --kat path is not a directory: %s", kat_path);
+        ngcc_log_error("[hash][kat] --kat path is not a file or directory: %s", kat_path);
         return -1;
     }
 
@@ -550,9 +617,9 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
     }
 
     while ((entry = readdir(dir)) != NULL) {
-        ngcc_kat_file_t kat;
         char file_path[2048];
         int len;
+        int vrc;
         kat_file_type_t ftype;
 
         if (entry->d_name[0] == '.') {
@@ -573,9 +640,14 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
             continue;  /* skip files not matching any known KAT prefix */
         }
 
-        memset(&kat, 0, sizeof(kat));
-        if (ngcc_kat_parse_file(file_path, &kat) != 0) {
-            ngcc_log_error("[hash][kat] failed to parse file: %s", file_path);
+        vrc = verify_hash_kat_one_file(api,
+                                       digest_len_bits,
+                                       file_path,
+                                       ftype,
+                                       &total,
+                                       &passed_count,
+                                       &failed_count);
+        if (vrc == -2) {
             closedir(dir);
             rc = -1;
             goto done;
@@ -585,14 +657,6 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
         if (ftype < 4) {
             found_types[ftype] = 1;
         }
-        if (ftype == KAT_TYPE_LOOP) {
-            verify_kat_loop(api, digest_len_bits, &kat, &total, &passed_count, &failed_count);
-        } else {
-            /* KAT_2_12, KAT_2_23, KAT_2_33 all use verify_kat_vectors */
-            verify_kat_vectors(api, digest_len_bits, &kat, &total, &passed_count, &failed_count);
-        }
-
-        ngcc_kat_free(&kat);
     }
     closedir(dir);
 

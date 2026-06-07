@@ -672,10 +672,6 @@ int main(int argc, char **argv) {
         if (write_json_reports(&opts, &report, failed) != 0) {
             ngcc_log_error("[report] failed to write json reports: path=%s", opts.json_out_path);
             failed = 1;
-        } else {
-            printf("[report] END status=PASS path_zh=%s.zh path_en=%s.en\n",
-                   opts.json_out_path, opts.json_out_path);
-            fflush(stdout);
         }
     }
 

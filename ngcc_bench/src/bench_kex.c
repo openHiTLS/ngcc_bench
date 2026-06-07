@@ -372,6 +372,14 @@ static int path_is_directory_kex(const char *path) {
     return S_ISDIR(st.st_mode);
 }
 
+static int path_is_regular_file_kex(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) {
+        return 0;
+    }
+    return S_ISREG(st.st_mode);
+}
+
 
 
 static int kex_field_populated(const ngcc_kat_field_t *f) {
@@ -669,6 +677,25 @@ static int verify_kex_kat_vectors(const ngcc_api_t *api,
     return 0;
 }
 
+static int verify_kex_kat_one_file(const ngcc_api_t *api,
+                                   const char *file_path,
+                                   unsigned long long *io_total,
+                                   unsigned long long *io_passed,
+                                   unsigned long long *io_failed) {
+    ngcc_kat_file_t kat;
+    int rc;
+
+    memset(&kat, 0, sizeof(kat));
+    if (ngcc_kat_parse_file(file_path, &kat) != 0) {
+        ngcc_log_error("[kex][kat] failed to parse file: %s", file_path);
+        return -2;
+    }
+
+    rc = verify_kex_kat_vectors(api, &kat, io_total, io_passed, io_failed);
+    ngcc_kat_free(&kat);
+    return rc;
+}
+
 int ngcc_kex_correctness_kat_file(const ngcc_api_t *api,
                                   const char *kat_path,
                                   unsigned long long *out_total,
@@ -696,8 +723,23 @@ int ngcc_kex_correctness_kat_file(const ngcc_api_t *api,
         return -1;
     }
 
+    if (path_is_regular_file_kex(kat_path)) {
+        int vrc = verify_kex_kat_one_file(api, kat_path, &total, &passed, &failed);
+
+        file_count = 1;
+        rc = (vrc == 0 && total > 0 && failed == 0) ? 0 : -1;
+        if (rc != 0) {
+            ngcc_log_error("[kex][kat] verification failed: total=%llu passed=%llu failed=%llu file=%s",
+                           total,
+                           passed,
+                           failed,
+                           kat_path);
+        }
+        goto done;
+    }
+
     if (!path_is_directory_kex(kat_path)) {
-        ngcc_log_error("[kex][kat] --kat path is not a directory: %s", kat_path);
+        ngcc_log_error("[kex][kat] --kat path is not a file or directory: %s", kat_path);
         return -1;
     }
 
@@ -708,9 +750,9 @@ int ngcc_kex_correctness_kat_file(const ngcc_api_t *api,
     }
 
     while ((entry = readdir(dir)) != NULL) {
-        ngcc_kat_file_t kat;
         char file_path[2048];
         int len;
+        int vrc;
 
         if (entry->d_name[0] == '.') {
             continue;
@@ -728,16 +770,13 @@ int ngcc_kex_correctness_kat_file(const ngcc_api_t *api,
             continue;  /* skip files not matching KAT_KEX_ prefix */
         }
 
-        memset(&kat, 0, sizeof(kat));
-        if (ngcc_kat_parse_file(file_path, &kat) != 0) {
-            ngcc_log_error("[kex][kat] failed to parse file: %s", file_path);
+        vrc = verify_kex_kat_one_file(api, file_path, &total, &passed, &failed);
+        if (vrc == -2) {
             closedir(dir);
             goto done;
         }
 
         file_count++;
-        verify_kex_kat_vectors(api, &kat, &total, &passed, &failed);
-        ngcc_kat_free(&kat);
     }
     closedir(dir);
 
