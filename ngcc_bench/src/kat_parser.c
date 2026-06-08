@@ -1,9 +1,15 @@
 #include "kat_parser.h"
+#include "bench_core.h"
 
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define NGCC_KAT_MAX_FIELD_BYTES ((size_t) NGCC_MAX_BUFFER_LEN)
+#define NGCC_KAT_MAX_VALUE_TEXT_LEN ((size_t) (2ULL * NGCC_MAX_BUFFER_LEN))
+#define NGCC_KAT_MAX_LINE_LEN (NGCC_KAT_MAX_VALUE_TEXT_LEN + 4096U)
+#define NGCC_KAT_MAX_VECTORS 1000U
 
 typedef struct {
     unsigned int count;
@@ -72,44 +78,66 @@ static int key_is_metadata(const char *name) {
     return 0;
 }
 
-static char *read_full_line(FILE *fp, size_t *out_len) {
+static int read_full_line(FILE *fp, char **out_line, size_t *out_len) {
     size_t cap = 4096;
     size_t len = 0;
+    const size_t max_cap = NGCC_KAT_MAX_LINE_LEN + 1U;
     char *buf;
     char *next;
 
+    if (fp == NULL || out_line == NULL || out_len == NULL) {
+        return -1;
+    }
+    *out_line = NULL;
+    *out_len = 0;
+
     buf = (char *) malloc(cap);
     if (buf == NULL) {
-        return NULL;
+        return -1;
     }
 
     for (;;) {
         size_t room = cap - len;
         if (room < 2U) {
-            cap *= 2U;
-            next = (char *) realloc(buf, cap);
+            size_t next_cap;
+
+            if (cap >= max_cap) {
+                free(buf);
+                return -1;
+            }
+            next_cap = cap * 2U;
+            if (next_cap < cap || next_cap > max_cap) {
+                next_cap = max_cap;
+            }
+            next = (char *) realloc(buf, next_cap);
             if (next == NULL) {
                 free(buf);
-                return NULL;
+                return -1;
             }
             buf = next;
+            cap = next_cap;
             room = cap - len;
         }
         if (fgets(buf + len, (int) room, fp) == NULL) {
             if (len == 0U) {
                 free(buf);
-                return NULL;
+                return 0;
             }
             break;
         }
         len += strlen(buf + len);
+        if (len > NGCC_KAT_MAX_LINE_LEN) {
+            free(buf);
+            return -1;
+        }
         if (len > 0U && buf[len - 1U] == '\n') {
             break;
         }
     }
 
+    *out_line = buf;
     *out_len = len;
-    return buf;
+    return 1;
 }
 
 static char *dup_string(const char *s) {
@@ -154,6 +182,9 @@ static int parse_hex_bytes(const char *hex, unsigned char **out_buf, size_t *out
     }
 
     in_len = strlen(hex);
+    if (in_len > NGCC_KAT_MAX_VALUE_TEXT_LEN) {
+        return -1;
+    }
     normalized = (char *) malloc(in_len + 1U);
     if (normalized == NULL) {
         return -1;
@@ -185,6 +216,10 @@ static int parse_hex_bytes(const char *hex, unsigned char **out_buf, size_t *out
         *out_len = 0;
         free(normalized);
         return 0;
+    }
+    if ((n / 2U) > NGCC_KAT_MAX_FIELD_BYTES) {
+        free(normalized);
+        return -1;
     }
 
     buf = (unsigned char *) malloc(n / 2U);
@@ -234,6 +269,9 @@ static int builder_set_field(kat_builder_t *builder,
     unsigned char *data_dup;
 
     if (name == NULL || *name == '\0' || (data == NULL && len > 0) || key_has_space(name)) {
+        return -1;
+    }
+    if (len > NGCC_KAT_MAX_FIELD_BYTES) {
         return -1;
     }
 
@@ -294,6 +332,9 @@ static int append_vector(ngcc_kat_file_t *kat, const kat_builder_t *builder, siz
     if (!builder_has_payload(builder)) {
         return 0;
     }
+    if (kat->count >= NGCC_KAT_MAX_VECTORS) {
+        return -1;
+    }
 
     next = (ngcc_kat_vector_t *) realloc(kat->vectors, (kat->count + 1U) * sizeof(kat->vectors[0]));
     if (next == NULL) {
@@ -321,6 +362,9 @@ static int append_vector(ngcc_kat_file_t *kat, const kat_builder_t *builder, siz
         }
         vec->fields[i].data = NULL;
         if (builder->fields[i].len > 0U) {
+            if (builder->fields[i].len > NGCC_KAT_MAX_FIELD_BYTES) {
+                return -1;
+            }
             vec->fields[i].data = (unsigned char *) malloc(builder->fields[i].len);
             if (vec->fields[i].data == NULL) {
                 return -1;
@@ -340,6 +384,7 @@ int ngcc_kat_parse_file(const char *path, ngcc_kat_file_t *out_kat) {
     kat_builder_t builder;
     ngcc_kat_file_t kat;
     size_t auto_index = 0;
+    int line_status;
     int rc = -1;
 
     if (path == NULL || out_kat == NULL) {
@@ -354,7 +399,7 @@ int ngcc_kat_parse_file(const char *path, ngcc_kat_file_t *out_kat) {
         return -1;
     }
 
-    while ((line = read_full_line(fp, &line_len)) != NULL) {
+    while ((line_status = read_full_line(fp, &line, &line_len)) > 0) {
         char *s = trim(line);
         char *eq;
         char *key;
@@ -468,6 +513,9 @@ int ngcc_kat_parse_file(const char *path, ngcc_kat_file_t *out_kat) {
             free(buf);
         }
         free(line);
+    }
+    if (line_status < 0) {
+        goto out;
     }
 
     if (builder_has_payload(&builder)) {
