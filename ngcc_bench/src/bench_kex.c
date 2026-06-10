@@ -20,6 +20,71 @@ static int kex_is_valid_output_len(unsigned long long len, unsigned long long ca
     return len != 0 && len <= cap;
 }
 
+typedef int (*kex_derive_fn_t)(unsigned char *sk,
+                               unsigned long long sk_len,
+                               unsigned char *pk,
+                               unsigned long long pk_len,
+                               unsigned char *msg,
+                               unsigned long long msg_len,
+                               unsigned char *state,
+                               unsigned long long state_len,
+                               unsigned char *ss,
+                               unsigned long long *ss_len);
+
+static int kex_derive_matches_expected(kex_derive_fn_t derive_fn,
+                                       const char *side,
+                                       size_t vector,
+                                       unsigned char *sk,
+                                       size_t sk_len,
+                                       unsigned char *pk,
+                                       size_t pk_len,
+                                       unsigned char *msg,
+                                       size_t msg_len,
+                                       unsigned char *state,
+                                       size_t state_len,
+                                       unsigned char *ss_out,
+                                       unsigned long long ss_cap,
+                                       const ngcc_kat_field_t *expected_ss,
+                                       unsigned char sentinel) {
+    unsigned long long ss_out_len = ss_cap;
+
+    memset(ss_out, sentinel, (size_t) ss_cap);
+    if (derive_fn(sk,
+                  (unsigned long long) sk_len,
+                  pk,
+                  (unsigned long long) pk_len,
+                  msg,
+                  (unsigned long long) msg_len,
+                  state,
+                  (unsigned long long) state_len,
+                  ss_out,
+                  &ss_out_len) != 0) {
+        ngcc_log_error("[kex][kat] %s derive failed: vector=%zu sk_len=%zu pk_len=%zu msg_len=%zu state_len=%zu ss_cap=%llu sentinel=0x%02x",
+                       side,
+                       vector,
+                       sk_len,
+                       pk_len,
+                       msg_len,
+                       state_len,
+                       ss_cap,
+                       (unsigned int) sentinel);
+        return -1;
+    }
+
+    if (ss_out_len != (unsigned long long) expected_ss->len ||
+        memcmp(ss_out, expected_ss->data, expected_ss->len) != 0) {
+        ngcc_log_error("[kex][kat] %s shared-secret mismatch: vector=%zu expected_len=%zu actual_len=%llu sentinel=0x%02x",
+                       side,
+                       vector,
+                       expected_ss->len,
+                       ss_out_len,
+                       (unsigned int) sentinel);
+        return -1;
+    }
+
+    return 0;
+}
+
 /* Dynamic multi-pass KEX execution.
  * Pass 1 (A-side, 8 params): ska, pkb, sta, m_out
  * Pass 2+ (10 params): sk, pk, m_in, st, m_out
@@ -573,8 +638,6 @@ static int verify_kex_kat_vectors(const ngcc_api_t *api,
         }
 
         if (has_a) {
-            unsigned long long ss_out_len = ss_cap;
-
             if (ska->len > sk_cap || pkb->len > pk_cap ||
                 mb_field->len > msg_cap || sta_field->len > sta_cap ||
                 ss->len > ss_cap) {
@@ -591,37 +654,26 @@ static int verify_kex_kat_vectors(const ngcc_api_t *api,
                                ss->len,
                                ss_cap);
                 case_failed = 1;
-            } else if (api->kex_derive_ss_a((unsigned char *) ska->data,
-                                            (unsigned long long) ska->len,
-                                            (unsigned char *) pkb->data,
-                                            (unsigned long long) pkb->len,
-                                            (unsigned char *) mb_field->data,
-                                            (unsigned long long) mb_field->len,
-                                            (unsigned char *) sta_field->data,
-                                            (unsigned long long) sta_field->len,
-                                            ss_out,
-                                            &ss_out_len) != 0) {
-                ngcc_log_error("[kex][kat] kex_derive_ss_a failed: vector=%zu ska_len=%zu pkb_len=%zu mb_len=%zu sta_len=%zu ss_cap=%llu",
-                               i,
-                               ska->len,
-                               pkb->len,
-                               mb_field->len,
-                               sta_field->len,
-                               ss_cap);
-                case_failed = 1;
-            } else if (ss_out_len != (unsigned long long) ss->len ||
-                       memcmp(ss_out, ss->data, ss->len) != 0) {
-                ngcc_log_error("[kex][kat] A-side shared-secret mismatch: vector=%zu expected_len=%zu actual_len=%llu",
-                               i,
-                               ss->len,
-                               ss_out_len);
+            } else if (kex_derive_matches_expected(api->kex_derive_ss_a,
+                                                   "A-side",
+                                                   i,
+                                                   (unsigned char *) ska->data,
+                                                   ska->len,
+                                                   (unsigned char *) pkb->data,
+                                                   pkb->len,
+                                                   (unsigned char *) mb_field->data,
+                                                   mb_field->len,
+                                                   (unsigned char *) sta_field->data,
+                                                   sta_field->len,
+                                                   ss_out,
+                                                   ss_cap,
+                                                   ss,
+                                                   0xA5) != 0) {
                 case_failed = 1;
             }
         }
 
         if (!case_failed && has_b) {
-            unsigned long long ss_out_len = ss_cap;
-
             if (skb->len > sk_cap || pka->len > pk_cap ||
                 ma_field->len > msg_cap || stb_field->len > stb_cap ||
                 ss->len > ss_cap) {
@@ -638,30 +690,21 @@ static int verify_kex_kat_vectors(const ngcc_api_t *api,
                                ss->len,
                                ss_cap);
                 case_failed = 1;
-            } else if (api->kex_derive_ss_b((unsigned char *) skb->data,
-                                            (unsigned long long) skb->len,
-                                            (unsigned char *) pka->data,
-                                            (unsigned long long) pka->len,
-                                            (unsigned char *) ma_field->data,
-                                            (unsigned long long) ma_field->len,
-                                            (unsigned char *) stb_field->data,
-                                            (unsigned long long) stb_field->len,
-                                            ss_out,
-                                            &ss_out_len) != 0) {
-                ngcc_log_error("[kex][kat] kex_derive_ss_b failed: vector=%zu skb_len=%zu pka_len=%zu ma_len=%zu stb_len=%zu ss_cap=%llu",
-                               i,
-                               skb->len,
-                               pka->len,
-                               ma_field->len,
-                               stb_field->len,
-                               ss_cap);
-                case_failed = 1;
-            } else if (ss_out_len != (unsigned long long) ss->len ||
-                       memcmp(ss_out, ss->data, ss->len) != 0) {
-                ngcc_log_error("[kex][kat] B-side shared-secret mismatch: vector=%zu expected_len=%zu actual_len=%llu",
-                               i,
-                               ss->len,
-                               ss_out_len);
+            } else if (kex_derive_matches_expected(api->kex_derive_ss_b,
+                                                   "B-side",
+                                                   i,
+                                                   (unsigned char *) skb->data,
+                                                   skb->len,
+                                                   (unsigned char *) pka->data,
+                                                   pka->len,
+                                                   (unsigned char *) ma_field->data,
+                                                   ma_field->len,
+                                                   (unsigned char *) stb_field->data,
+                                                   stb_field->len,
+                                                   ss_out,
+                                                   ss_cap,
+                                                   ss,
+                                                   0xA5) != 0) {
                 case_failed = 1;
             }
         }
