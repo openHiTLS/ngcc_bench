@@ -37,6 +37,24 @@ static int hash_run_once(const ngcc_api_t *api,
     return 0;
 }
 
+static int hash_run_checked_bits(const ngcc_api_t *api,
+                                 int digest_len_bits,
+                                 const unsigned char *msg,
+                                 unsigned long long msg_len_bits,
+                                 unsigned char *digest,
+                                 size_t digest_len) {
+    if (api == NULL || msg == NULL || digest == NULL || digest_len == 0) {
+        return -1;
+    }
+
+    memset(digest, 0xA5, digest_len);
+    if (api->CryptHash(digest_len_bits, msg, msg_len_bits, digest) != 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
 static int hash_perf_op(void *ctx_ptr) {
     hash_perf_ctx_t *ctx = (hash_perf_ctx_t *) ctx_ptr;
     return hash_run_once(ctx->api,
@@ -293,19 +311,24 @@ static int verify_kat_vectors(const ngcc_api_t *api,
             if (msg_buf != NULL) { free(msg_buf); msg_buf = NULL; }
             continue;
         }
-        if (api->CryptHash(digest_len_bits,
-                           msg_data,
-                           msg_len_bits_val,
-                           digest) != 0) {
-            ngcc_log_error("[hash][kat] CryptHash failed: vector=%zu digest_len_bits=%d Msg_Len=%llu bits msg_bytes=%zu",
-                           i,
-                           digest_len_bits,
-                           msg_len_bits_val,
-                           msg_data_bytes);
-            (*io_failed)++;
-            any_fail = 1;
-            if (msg_buf != NULL) { free(msg_buf); msg_buf = NULL; }
-            continue;
+        {
+            int hash_rc = hash_run_checked_bits(api,
+                                                digest_len_bits,
+                                                msg_data,
+                                                msg_len_bits_val,
+                                                digest,
+                                                digest_len);
+            if (hash_rc != 0) {
+                ngcc_log_error("[hash][kat] CryptHash failed: vector=%zu digest_len_bits=%d Msg_Len=%llu bits msg_bytes=%zu",
+                               i,
+                               digest_len_bits,
+                               msg_len_bits_val,
+                               msg_data_bytes);
+                (*io_failed)++;
+                any_fail = 1;
+                if (msg_buf != NULL) { free(msg_buf); msg_buf = NULL; }
+                continue;
+            }
         }
         if (memcmp(digest, output->data, digest_len) != 0) {
             ngcc_log_error("[hash][kat] digest mismatch: vector=%zu digest_len_bits=%d Msg_Len=%llu bits digest_bytes=%zu",
@@ -434,11 +457,19 @@ static int verify_kat_loop(const ngcc_api_t *api,
     memcpy(msg, input->data, input->len < msg_bytes ? input->len : msg_bytes);
 
     /* h_0 = CryptHash(m_0) */
-    if (api->CryptHash(digest_len_bits, msg, msg_len_bits_val, digest) != 0) {
-        ngcc_log_error("[hash][kat_loop] initial CryptHash failed: digest_len_bits=%d Msg_Len=%llu bits",
-                       digest_len_bits,
-                       msg_len_bits_val);
-        goto out;
+    {
+        int hash_rc = hash_run_checked_bits(api,
+                                            digest_len_bits,
+                                            msg,
+                                            msg_len_bits_val,
+                                            digest,
+                                            digest_len);
+        if (hash_rc != 0) {
+            ngcc_log_error("[hash][kat_loop] initial CryptHash failed: digest_len_bits=%d Msg_Len=%llu bits",
+                           digest_len_bits,
+                           msg_len_bits_val);
+            goto out;
+        }
     }
 
     /* Loop i in [0:1,000,000):
@@ -459,13 +490,21 @@ static int verify_kat_loop(const ngcc_api_t *api,
                 msg[j] ^= digest[j];
             }
         }
-        if (api->CryptHash(digest_len_bits, msg, msg_len_bits_val, digest) != 0) {
-            ngcc_log_error("[hash][kat_loop] CryptHash failed during loop: iteration=%d/%d digest_len_bits=%d Msg_Len=%llu bits",
-                           i + 1,
-                           KAT_LOOP_ITERATIONS,
-                           digest_len_bits,
-                           msg_len_bits_val);
-            goto out;
+        {
+            int hash_rc = hash_run_checked_bits(api,
+                                                digest_len_bits,
+                                                msg,
+                                                msg_len_bits_val,
+                                                digest,
+                                                digest_len);
+            if (hash_rc != 0) {
+                ngcc_log_error("[hash][kat_loop] CryptHash failed during loop: iteration=%d/%d digest_len_bits=%d Msg_Len=%llu bits",
+                               i + 1,
+                               KAT_LOOP_ITERATIONS,
+                               digest_len_bits,
+                               msg_len_bits_val);
+                goto out;
+            }
         }
     }
 
@@ -572,6 +611,7 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
     unsigned long long failed_count = 0;
     int file_count = 0;
     int found_types[4] = {0, 0, 0, 0};  /* KAT_2_12, KAT_2_23, KAT_2_33, KAT_Loop */
+    int any_file_failed = 0;
     int rc = -1;
 
     if (api == NULL || digest_len_bits <= 0 || kat_path == NULL) {
@@ -621,6 +661,9 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
         int len;
         int vrc;
         kat_file_type_t ftype;
+        unsigned long long before_total;
+        unsigned long long before_passed;
+        unsigned long long before_failed;
 
         if (entry->d_name[0] == '.') {
             continue;
@@ -640,6 +683,10 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
             continue;  /* skip files not matching any known KAT prefix */
         }
 
+        before_total = total;
+        before_passed = passed_count;
+        before_failed = failed_count;
+
         vrc = verify_hash_kat_one_file(api,
                                        digest_len_bits,
                                        file_path,
@@ -654,7 +701,18 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
         }
 
         file_count++;
-        if (ftype < 4) {
+        if (vrc != 0) {
+            any_file_failed = 1;
+            ngcc_log_error("[hash][kat] file verification failed: file=%s type=%s rc=%d total_delta=%llu passed_delta=%llu failed_delta=%llu",
+                           file_path,
+                           kat_type_name(ftype),
+                           vrc,
+                           total - before_total,
+                           passed_count - before_passed,
+                           failed_count - before_failed);
+            continue;
+        }
+        if (ftype < 4 && passed_count > before_passed) {
             found_types[ftype] = 1;
         }
     }
@@ -679,7 +737,7 @@ int ngcc_hash_correctness_kat_file(const ngcc_api_t *api,
         }
     }
 
-    rc = (total > 0 && failed_count == 0) ? 0 : -1;
+    rc = (total > 0 && failed_count == 0 && !any_file_failed) ? 0 : -1;
     if (rc != 0) {
         ngcc_log_error("[hash][kat] verification failed: total=%llu passed=%llu failed=%llu dir=%s",
                        total,

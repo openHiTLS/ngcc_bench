@@ -128,6 +128,47 @@ static int kem_dec_checked(const ngcc_api_t *api,
     return 0;
 }
 
+static int kem_dec_matches_expected(const ngcc_api_t *api,
+                                    const unsigned char *sk,
+                                    size_t sk_len,
+                                    const unsigned char *ct,
+                                    size_t ct_len,
+                                    unsigned char *ss_out,
+                                    unsigned long long ss_cap,
+                                    const ngcc_kat_field_t *expected_ss,
+                                    size_t vector,
+                                    unsigned char sentinel) {
+    unsigned long long ss_out_len = ss_cap;
+
+    memset(ss_out, sentinel, (size_t) ss_cap);
+    if (api->kem_dec((unsigned char *) sk,
+                     (unsigned long long) sk_len,
+                     (unsigned char *) ct,
+                     (unsigned long long) ct_len,
+                     ss_out,
+                     &ss_out_len) != 0) {
+        ngcc_log_error("[kem][kat] kem_dec failed: vector=%zu sk_len=%zu ct_len=%zu ss_cap=%llu sentinel=0x%02x",
+                       vector,
+                       sk_len,
+                       ct_len,
+                       ss_cap,
+                       (unsigned int) sentinel);
+        return -1;
+    }
+
+    if (ss_out_len != (unsigned long long) expected_ss->len ||
+        memcmp(ss_out, expected_ss->data, expected_ss->len) != 0) {
+        ngcc_log_error("[kem][kat] shared-secret mismatch: vector=%zu expected_len=%zu actual_len=%llu sentinel=0x%02x",
+                       vector,
+                       expected_ss->len,
+                       ss_out_len,
+                       (unsigned int) sentinel);
+        return -1;
+    }
+
+    return 0;
+}
+
 static int kem_run_once(const ngcc_api_t *api,
                         unsigned char *pk,
                         unsigned long long pk_cap,
@@ -144,14 +185,19 @@ static int kem_run_once(const ngcc_api_t *api,
     unsigned long long ss_a_len;
     unsigned long long ss_b_len;
 
+    memset(pk, 0xA5, (size_t) pk_cap);
+    memset(sk, 0x5A, (size_t) sk_cap);
     if (kem_keygen_checked(api, pk, pk_cap, sk, sk_cap, &pk_len, &sk_len) != 0) {
         return -1;
     }
 
+    memset(ss_a, 0xA5, (size_t) ss_cap);
+    memset(ct, 0x3C, (size_t) ct_cap);
     if (kem_enc_checked(api, pk, pk_len, ss_a, ss_cap, &ss_a_len, ct, ct_cap, &ct_len) != 0) {
         return -1;
     }
 
+    memset(ss_b, 0x5A, (size_t) ss_cap);
     if (kem_dec_checked(api, sk, sk_len, ct, ct_len, ss_b, ss_cap, &ss_b_len) != 0 ||
         ss_a_len != ss_b_len) {
         ngcc_log_error("[kem] decapsulation failed or shared-secret length mismatch: ss_a_len=%llu ss_b_len=%llu",
@@ -329,7 +375,6 @@ static int verify_kem_kat_vectors(const ngcc_api_t *api,
         const ngcc_kat_field_t *sk = ngcc_kat_get_field(vec, "SK");
         const ngcc_kat_field_t *ct = ngcc_kat_get_field(vec, "CT");
         const ngcc_kat_field_t *ss = ngcc_kat_get_field(vec, "SS");
-        unsigned long long ss_out_len = ss_cap;
 
         /* Skip vectors with empty output (blank template) */
         if (sk == NULL || sk->data == NULL || sk->len == 0) {
@@ -364,27 +409,16 @@ static int verify_kem_kat_vectors(const ngcc_api_t *api,
             continue;
         }
 
-        if (api->kem_dec((unsigned char *) sk->data,
-                         (unsigned long long) sk->len,
-                         (unsigned char *) ct->data,
-                         (unsigned long long) ct->len,
-                         ss_out,
-                         &ss_out_len) != 0) {
-            ngcc_log_error("[kem][kat] kem_dec failed: vector=%zu sk_len=%zu ct_len=%zu ss_cap=%llu",
-                           i,
-                           sk->len,
-                           ct->len,
-                           ss_cap);
-            (*io_failed)++;
-            continue;
-        }
-
-        if (ss_out_len != (unsigned long long) ss->len ||
-            memcmp(ss_out, ss->data, ss->len) != 0) {
-            ngcc_log_error("[kem][kat] shared-secret mismatch: vector=%zu expected_len=%zu actual_len=%llu",
-                           i,
-                           ss->len,
-                           ss_out_len);
+        if (kem_dec_matches_expected(api,
+                                     sk->data,
+                                     sk->len,
+                                     ct->data,
+                                     ct->len,
+                                     ss_out,
+                                     ss_cap,
+                                     ss,
+                                     i,
+                                     0xA5) != 0) {
             (*io_failed)++;
             continue;
         }
