@@ -400,11 +400,6 @@ int write_json_report(const cli_options_t *opts,
             jw_key_bool(&w, L(lang, "是否中断", "interrupted"), test->stability.interrupted);
             jw_key_bool(&w, L(lang, "是否失败", "failed_flag"), test->stability.failed);
             jw_key_str(&w, L(lang, "状态", "status"), test->stability.status);
-            jw_key_double(&w, L(lang, "操作吞吐量均值(次/秒)", "throughput_mean_ops"), test->stability.throughput_mean_ops);
-            jw_key_double(&w, L(lang, "操作吞吐量标准差(次/秒)", "throughput_stddev_ops"), test->stability.throughput_stddev_ops);
-            jw_key_double(&w, L(lang, "操作吞吐量变异系数(%)", "throughput_cv_percent_ops"), test->stability.throughput_cv_percent);
-            jw_key_double(&w, L(lang, "操作吞吐量最小值(次/秒)", "throughput_min_ops"), test->stability.throughput_min_ops);
-            jw_key_double(&w, L(lang, "操作吞吐量最大值(次/秒)", "throughput_max_ops"), test->stability.throughput_max_ops);
             if (test->is_hash) {
                 jw_key_double(&w, L(lang, "吞吐量均值(MB/s)", "throughput_mean_mb_per_sec"), test->stability.throughput_mean_mb);
                 jw_key_double(&w, L(lang, "吞吐量标准差(MB/s)", "throughput_stddev_mb_per_sec"), test->stability.throughput_stddev_mb);
@@ -412,11 +407,11 @@ int write_json_report(const cli_options_t *opts,
                 jw_key_double(&w, L(lang, "吞吐量最小值(MB/s)", "throughput_min_mb_per_sec"), test->stability.throughput_min_mb);
                 jw_key_double(&w, L(lang, "吞吐量最大值(MB/s)", "throughput_max_mb_per_sec"), test->stability.throughput_max_mb);
             } else {
-                jw_key_double(&w, L(lang, "字节吞吐量均值(字节/秒)", "throughput_mean_bytes"), test->stability.throughput_mean_bytes);
-                jw_key_double(&w, L(lang, "字节吞吐量标准差(字节/秒)", "throughput_stddev_bytes"), test->stability.throughput_stddev_bytes);
-                jw_key_double(&w, L(lang, "字节吞吐量变异系数(%)", "throughput_cv_percent_bytes"), test->stability.throughput_cv_percent_bytes);
-                jw_key_double(&w, L(lang, "字节吞吐量最小值(字节/秒)", "throughput_min_bytes"), test->stability.throughput_min_bytes);
-                jw_key_double(&w, L(lang, "字节吞吐量最大值(字节/秒)", "throughput_max_bytes"), test->stability.throughput_max_bytes);
+                jw_key_double(&w, L(lang, "操作吞吐量均值(次/秒)", "throughput_mean_ops"), test->stability.throughput_mean_ops);
+                jw_key_double(&w, L(lang, "操作吞吐量标准差(次/秒)", "throughput_stddev_ops"), test->stability.throughput_stddev_ops);
+                jw_key_double(&w, L(lang, "操作吞吐量变异系数(%)", "throughput_cv_percent_ops"), test->stability.throughput_cv_percent);
+                jw_key_double(&w, L(lang, "操作吞吐量最小值(次/秒)", "throughput_min_ops"), test->stability.throughput_min_ops);
+                jw_key_double(&w, L(lang, "操作吞吐量最大值(次/秒)", "throughput_max_ops"), test->stability.throughput_max_ops);
             }
             if (test->stability.cycles_available) {
                 jw_key_double(&w, L(lang, "CPU周期均值(周期/次)", "cycles_per_op_mean"), test->stability.cycles_mean);
