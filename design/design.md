@@ -862,7 +862,7 @@ parent
 | **吞吐量变异系数 (throughput_cv)** | 多轮测试吞吐量的波动程度 | CV < 5% 为稳定 |
 | **CPU周期稳定性 (counts_cv)** | 当前可用周期来源的计数波动；不可用时标记为 unavailable | CV < 5% 为稳定 |
 | **时间稳定性 (time_cv)** | 时间均值的波动程度 | CV < 5% 为稳定 |
-| **内存增长率** | 堆内存 (Heap) 或 RSS 从开始到结束的增长 | 增长 < 1% 为无泄漏 |
+| **内存增长率** | 堆内存 (Heap) 或 RSS 从开始到结束的增长 | 增长 < 1% 且绝对值 < 100KB 为无泄漏 |
 | **错误率** | 长时间运行中的错误发生率 | 0% 为通过 |
 
 ### 6.2 测试配置
@@ -925,6 +925,12 @@ typedef struct {
     size_t rss_start_bytes;      // 物理内存初始 (bytes)
     size_t rss_end_bytes;        // 物理内存结束 (bytes)
     double rss_growth_percent;   // 物理内存增长率 (%)
+
+    // 阈值配置
+    double stable_heap_growth_percent;      // 堆内存增长率阈值 (%)
+    size_t stable_heap_growth_abs_bytes;    // 堆内存绝对增长阈值 (bytes)
+    double stable_rss_growth_percent;       // 物理内存增长率阈值 (%)
+    size_t stable_rss_growth_abs_bytes;     // 物理内存绝对增长阈值 (bytes)
 
     // 错误统计
     uint32_t total_executions;  // 总执行次数
@@ -1134,8 +1140,10 @@ int run_stability_test(AlgorithmContext* ctx,
 
     result->memory_stable =
         (result->heap_start_bytes > 0)
-            ? (fabs(result->heap_growth_percent) < 1.0)
-            : (fabs(result->rss_growth_percent) < 1.0);
+            ? (fabs(result->heap_growth_percent) < result->stable_heap_growth_percent &&
+               heap_abs < result->stable_heap_growth_abs_bytes)
+            : (fabs(result->rss_growth_percent) < result->stable_rss_growth_percent &&
+               rss_abs < result->stable_rss_growth_abs_bytes);
 
     result->correctness_stable =
         (result->error_rate == 0);

@@ -78,7 +78,9 @@ typedef struct {
     double stable_cycles_cv_percent;
     double stable_time_cv_percent;
     double stable_heap_growth_percent;
+    uint64_t stable_heap_growth_abs_bytes;
     double stable_rss_growth_percent;
+    uint64_t stable_rss_growth_abs_bytes;
     double stable_error_rate_percent;
 } ngcc_stability_thresholds_t;
 

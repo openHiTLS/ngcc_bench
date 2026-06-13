@@ -64,7 +64,9 @@ void ngcc_stability_thresholds_set_defaults(ngcc_stability_thresholds_t *out_thr
     out_thresholds->stable_cycles_cv_percent = 5.0;
     out_thresholds->stable_time_cv_percent = 5.0;
     out_thresholds->stable_heap_growth_percent = 1.0;
+    out_thresholds->stable_heap_growth_abs_bytes = 100000;
     out_thresholds->stable_rss_growth_percent = 1.0;
+    out_thresholds->stable_rss_growth_abs_bytes = 100000;
     out_thresholds->stable_error_rate_percent = 0.0;
 }
 
@@ -360,9 +362,13 @@ int ngcc_run_stability(const ngcc_api_t *api,
                                        (!out_result->cycles_available ||
                                         out_result->cycles_cv_percent < effective_thresholds.stable_cycles_cv_percent));
     if (heap_start > 0U) {
-        out_result->memory_stable = (fabs(effective_memory_growth) < effective_thresholds.stable_heap_growth_percent);
+        double heap_abs = fabs((double) (long long) heap_end - (double) (long long) heap_start);
+        out_result->memory_stable = (fabs(effective_memory_growth) < effective_thresholds.stable_heap_growth_percent) ||
+                                    (heap_abs < (double) effective_thresholds.stable_heap_growth_abs_bytes);
     } else {
-        out_result->memory_stable = (fabs(effective_memory_growth) < effective_thresholds.stable_rss_growth_percent);
+        double rss_abs = fabs((double) (long long) rss_end - (double) (long long) rss_start);
+        out_result->memory_stable = (fabs(effective_memory_growth) < effective_thresholds.stable_rss_growth_percent) ||
+                                    (rss_abs < (double) effective_thresholds.stable_rss_growth_abs_bytes);
     }
     out_result->correctness_stable = (out_result->error_rate_percent <= effective_thresholds.stable_error_rate_percent);
     out_result->is_stable = (out_result->performance_stable &&

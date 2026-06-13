@@ -1017,7 +1017,9 @@ static void test_stability_thresholds_defaults(void) {
     TEST_ASSERT(t.stable_cycles_cv_percent > 0.0);
     TEST_ASSERT(t.stable_time_cv_percent > 0.0);
     TEST_ASSERT(t.stable_heap_growth_percent > 0.0);
+    TEST_ASSERT(t.stable_heap_growth_abs_bytes > 0);
     TEST_ASSERT(t.stable_rss_growth_percent > 0.0);
+    TEST_ASSERT(t.stable_rss_growth_abs_bytes > 0);
     TEST_ASSERT(t.stable_error_rate_percent >= 0.0);
 }
 

@@ -158,11 +158,23 @@ def main():
             if c_heap > b_heap + args.allow_memory_growth_abs:
                 ok = fail(f"{algo}.heap_growth_percent: {c_heap:.6f} > {b_heap + args.allow_memory_growth_abs:.6f}") and ok
 
+        b_heap_abs = get_metric(base, algo, "heap_growth_abs_bytes")
+        c_heap_abs = get_metric(cur, algo, "heap_growth_abs_bytes")
+        if b_heap_abs is not None and c_heap_abs is not None:
+            if c_heap_abs > b_heap_abs + args.allow_memory_growth_abs * 1024:
+                ok = fail(f"{algo}.heap_growth_abs_bytes: {c_heap_abs} > {b_heap_abs + int(args.allow_memory_growth_abs * 1024)}") and ok
+
         b_rss = get_metric(base, algo, "rss_growth_percent")
         c_rss = get_metric(cur, algo, "rss_growth_percent")
         if b_rss is not None and c_rss is not None:
             if c_rss > b_rss + args.allow_memory_growth_abs:
                 ok = fail(f"{algo}.rss_growth_percent: {c_rss:.6f} > {b_rss + args.allow_memory_growth_abs:.6f}") and ok
+
+        b_rss_abs = get_metric(base, algo, "rss_growth_abs_bytes")
+        c_rss_abs = get_metric(cur, algo, "rss_growth_abs_bytes")
+        if b_rss_abs is not None and c_rss_abs is not None:
+            if c_rss_abs > b_rss_abs + args.allow_memory_growth_abs * 1024:
+                ok = fail(f"{algo}.rss_growth_abs_bytes: {c_rss_abs} > {b_rss_abs + int(args.allow_memory_growth_abs * 1024)}") and ok
 
         b_err = get_metric(base, algo, "error_rate_percent")
         c_err = get_metric(cur, algo, "error_rate_percent")

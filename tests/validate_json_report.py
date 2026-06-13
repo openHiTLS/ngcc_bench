@@ -74,7 +74,9 @@ def main() -> int:
         "stable_cycles_cv_percent",
         "stable_time_cv_percent",
         "stable_heap_growth_percent",
+        "stable_heap_growth_abs_bytes",
         "stable_rss_growth_percent",
+        "stable_rss_growth_abs_bytes",
         "stable_error_rate_percent",
     )
     warning_keys = (
@@ -82,7 +84,9 @@ def main() -> int:
         "warning_cycles_cv_percent",
         "warning_time_cv_percent",
         "warning_heap_growth_percent",
+        "warning_heap_growth_abs_bytes",
         "warning_rss_growth_percent",
+        "warning_rss_growth_abs_bytes",
         "warning_error_rate_percent",
     )
     for k in stable_keys + warning_keys:
