@@ -1016,7 +1016,8 @@ static void test_stability_thresholds_defaults(void) {
     TEST_ASSERT(t.stable_throughput_cv_percent > 0.0);
     TEST_ASSERT(t.stable_cycles_cv_percent > 0.0);
     TEST_ASSERT(t.stable_time_cv_percent > 0.0);
-    TEST_ASSERT(t.stable_memory_growth_percent > 0.0);
+    TEST_ASSERT(t.stable_heap_growth_percent > 0.0);
+    TEST_ASSERT(t.stable_rss_growth_percent > 0.0);
     TEST_ASSERT(t.stable_error_rate_percent >= 0.0);
 }
 
@@ -1155,7 +1156,8 @@ static void test_run_stability_single_success(void) {
     ngcc_stability_thresholds_set_defaults(&thresholds);
     thresholds.stable_throughput_cv_percent = 100.0;
     thresholds.stable_time_cv_percent = 100.0;
-    thresholds.stable_memory_growth_percent = 100.0;
+    thresholds.stable_heap_growth_percent = 100.0;
+    thresholds.stable_rss_growth_percent = 100.0;
     TEST_ASSERT_INT_EQ(ngcc_run_stability(&api,
                                           stability_stub_success,
                                           stability_stub_bytes,

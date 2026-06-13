@@ -53,11 +53,13 @@ typedef struct {
     double time_min_ms;
     double time_max_ms;
 
-    uint64_t memory_start_bytes;
-    uint64_t memory_end_bytes;
-    uint64_t memory_min_bytes;
-    uint64_t memory_max_bytes;
-    double memory_growth_percent;
+    uint64_t heap_start_bytes;
+    uint64_t heap_end_bytes;
+    double heap_growth_percent;
+
+    uint64_t rss_start_bytes;
+    uint64_t rss_end_bytes;
+    double rss_growth_percent;
 
     unsigned long long total_executions;
     unsigned long long error_count;
@@ -75,7 +77,8 @@ typedef struct {
     double stable_throughput_cv_percent;
     double stable_cycles_cv_percent;
     double stable_time_cv_percent;
-    double stable_memory_growth_percent;
+    double stable_heap_growth_percent;
+    double stable_rss_growth_percent;
     double stable_error_rate_percent;
 } ngcc_stability_thresholds_t;
 

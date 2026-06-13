@@ -73,14 +73,16 @@ def main() -> int:
         "stable_throughput_cv_percent",
         "stable_cycles_cv_percent",
         "stable_time_cv_percent",
-        "stable_memory_growth_percent",
+        "stable_heap_growth_percent",
+        "stable_rss_growth_percent",
         "stable_error_rate_percent",
     )
     warning_keys = (
         "warning_throughput_cv_percent",
         "warning_cycles_cv_percent",
         "warning_time_cv_percent",
-        "warning_memory_growth_percent",
+        "warning_heap_growth_percent",
+        "warning_rss_growth_percent",
         "warning_error_rate_percent",
     )
     for k in stable_keys + warning_keys:

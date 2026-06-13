@@ -106,7 +106,7 @@ def main():
     p.add_argument("--allow-cycles-mean-regress-ratio", type=float, default=0.10,
                    help="Allowed relative regression for cycles_mean increase (default 0.10 = +10%%)")
     p.add_argument("--allow-memory-growth-abs", type=float, default=1.0,
-                   help="Allowed absolute regression for memory_growth_percent (default +1.0)")
+                   help="Allowed absolute regression for heap_growth_percent (default +1.0)")
     p.add_argument("--allow-error-rate-abs", type=float, default=0.0,
                    help="Allowed absolute regression for error_rate_percent (default +0.0)")
     args = p.parse_args()
@@ -152,11 +152,17 @@ def main():
             ok = check_higher_is_worse(ok, algo, "cycles_mean", b_cycles, c_cycles,
                                        args.allow_cycles_mean_regress_ratio)
 
-        b_mem = get_metric(base, algo, "memory_growth_percent")
-        c_mem = get_metric(cur, algo, "memory_growth_percent")
-        if b_mem is not None and c_mem is not None:
-            if c_mem > b_mem + args.allow_memory_growth_abs:
-                ok = fail(f"{algo}.memory_growth_percent: {c_mem:.6f} > {b_mem + args.allow_memory_growth_abs:.6f}") and ok
+        b_heap = get_metric(base, algo, "heap_growth_percent")
+        c_heap = get_metric(cur, algo, "heap_growth_percent")
+        if b_heap is not None and c_heap is not None:
+            if c_heap > b_heap + args.allow_memory_growth_abs:
+                ok = fail(f"{algo}.heap_growth_percent: {c_heap:.6f} > {b_heap + args.allow_memory_growth_abs:.6f}") and ok
+
+        b_rss = get_metric(base, algo, "rss_growth_percent")
+        c_rss = get_metric(cur, algo, "rss_growth_percent")
+        if b_rss is not None and c_rss is not None:
+            if c_rss > b_rss + args.allow_memory_growth_abs:
+                ok = fail(f"{algo}.rss_growth_percent: {c_rss:.6f} > {b_rss + args.allow_memory_growth_abs:.6f}") and ok
 
         b_err = get_metric(base, algo, "error_rate_percent")
         c_err = get_metric(cur, algo, "error_rate_percent")

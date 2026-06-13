@@ -63,7 +63,8 @@ void ngcc_stability_thresholds_set_defaults(ngcc_stability_thresholds_t *out_thr
     out_thresholds->stable_throughput_cv_percent = 5.0;
     out_thresholds->stable_cycles_cv_percent = 5.0;
     out_thresholds->stable_time_cv_percent = 5.0;
-    out_thresholds->stable_memory_growth_percent = 1.0;
+    out_thresholds->stable_heap_growth_percent = 1.0;
+    out_thresholds->stable_rss_growth_percent = 1.0;
     out_thresholds->stable_error_rate_percent = 0.0;
 }
 
@@ -93,13 +94,14 @@ int ngcc_run_stability(const ngcc_api_t *api,
     unsigned long long total_executions = 0;
     unsigned long long error_count = 0;
     int loop_failed = 0;
-    uint64_t memory_start;
-    uint64_t memory_end;
-    uint64_t memory_min;
-    uint64_t memory_max;
     int cycles_warning_printed = 0;
     ngcc_stability_thresholds_t effective_thresholds;
     unsigned long long bytes_per_case;
+    uint64_t heap_start;
+    uint64_t heap_end;
+    uint64_t rss_start;
+    uint64_t rss_end;
+    double effective_memory_growth;
 
     if (api == NULL || correctness_fn == NULL || out_result == NULL || max_cases == 0 ||
         duration_hours <= 0.0 || sample_target_ms <= 0.0 || !isfinite(sample_target_ms)) {
@@ -140,9 +142,8 @@ int ngcc_run_stability(const ngcc_api_t *api,
         cycles_warning_printed = 1;
     }
 
-    memory_start = ngcc_mem_current_vmsize_bytes();
-    memory_min = memory_start;
-    memory_max = memory_start;
+    heap_start = ngcc_mem_heap_bytes();
+    rss_start = ngcc_mem_current_rss_bytes();
 
     stats_init(&throughput_stats);
     stats_init(&throughput_bytes_stats);
@@ -268,14 +269,6 @@ int ngcc_run_stability(const ngcc_api_t *api,
             }
         }
 
-        current_mem = ngcc_mem_current_vmsize_bytes();
-        if (current_mem < memory_min) {
-            memory_min = current_mem;
-        }
-        if (current_mem > memory_max) {
-            memory_max = current_mem;
-        }
-
         if (batch_failed || loop_failed) {
             break;
         }
@@ -291,13 +284,8 @@ int ngcc_run_stability(const ngcc_api_t *api,
                                       ((double) (ts_now.tv_nsec - ts_start.tv_nsec) / 1000000000.0);
     }
 
-    memory_end = ngcc_mem_current_vmsize_bytes();
-    if (memory_end < memory_min) {
-        memory_min = memory_end;
-    }
-    if (memory_end > memory_max) {
-        memory_max = memory_end;
-    }
+    heap_end = ngcc_mem_heap_bytes();
+    rss_end = ngcc_mem_current_rss_bytes();
 
     out_result->cases_run = cases_run;
     out_result->sample_count = sample_count;
@@ -347,20 +335,35 @@ int ngcc_run_stability(const ngcc_api_t *api,
         }
     }
 
-    out_result->memory_start_bytes = memory_start;
-    out_result->memory_end_bytes = memory_end;
-    out_result->memory_min_bytes = memory_min;
-    out_result->memory_max_bytes = memory_max;
-    if (memory_start > 0U) {
-        out_result->memory_growth_percent = ((double) ((long long) memory_end - (long long) memory_start) * 100.0) /
-                                            (double) memory_start;
+    out_result->heap_start_bytes = heap_start;
+    out_result->heap_end_bytes = heap_end;
+    if (heap_start > 0U) {
+        out_result->heap_growth_percent = ((double) ((long long) heap_end - (long long) heap_start) * 100.0) /
+                                          (double) heap_start;
+    }
+
+    out_result->rss_start_bytes = rss_start;
+    out_result->rss_end_bytes = rss_end;
+    if (rss_start > 0U) {
+        out_result->rss_growth_percent = ((double) ((long long) rss_end - (long long) rss_start) * 100.0) /
+                                         (double) rss_start;
+    }
+
+    if (heap_start > 0U) {
+        effective_memory_growth = out_result->heap_growth_percent;
+    } else {
+        effective_memory_growth = out_result->rss_growth_percent;
     }
 
     out_result->performance_stable = (out_result->throughput_cv_percent < effective_thresholds.stable_throughput_cv_percent &&
-                                      out_result->time_cv_percent < effective_thresholds.stable_time_cv_percent &&
-                                      (!out_result->cycles_available ||
-                                       out_result->cycles_cv_percent < effective_thresholds.stable_cycles_cv_percent));
-    out_result->memory_stable = (fabs(out_result->memory_growth_percent) < effective_thresholds.stable_memory_growth_percent);
+                                       out_result->time_cv_percent < effective_thresholds.stable_time_cv_percent &&
+                                       (!out_result->cycles_available ||
+                                        out_result->cycles_cv_percent < effective_thresholds.stable_cycles_cv_percent));
+    if (heap_start > 0U) {
+        out_result->memory_stable = (fabs(effective_memory_growth) < effective_thresholds.stable_heap_growth_percent);
+    } else {
+        out_result->memory_stable = (fabs(effective_memory_growth) < effective_thresholds.stable_rss_growth_percent);
+    }
     out_result->correctness_stable = (out_result->error_rate_percent <= effective_thresholds.stable_error_rate_percent);
     out_result->is_stable = (out_result->performance_stable &&
                              out_result->memory_stable &&
@@ -386,13 +389,14 @@ int ngcc_run_stability(const ngcc_api_t *api,
     }
 
     if (out_result->failed || !out_result->is_stable) {
-        ngcc_log_error("[stability] completed with failing status: status=%s cases_run=%llu samples=%llu errors=%llu error_rate=%.6f%% memory_growth=%.6f%% throughput_cv=%.6f%% time_cv=%.6f%% reasons=%s",
+        ngcc_log_error("[stability] completed with failing status: status=%s cases_run=%llu samples=%llu errors=%llu error_rate=%.6f%% heap_growth=%.6f%% rss_growth=%.6f%% throughput_cv=%.6f%% time_cv=%.6f%% reasons=%s",
                        out_result->status,
                        out_result->cases_run,
                        out_result->sample_count,
                        out_result->error_count,
                        out_result->error_rate_percent,
-                       out_result->memory_growth_percent,
+                       out_result->heap_growth_percent,
+                       out_result->rss_growth_percent,
                        out_result->throughput_cv_percent,
                        out_result->time_cv_percent,
                        out_result->failure_reasons);
