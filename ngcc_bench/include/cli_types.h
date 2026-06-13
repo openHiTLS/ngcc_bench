@@ -5,7 +5,6 @@
 #include <stdint.h>
 
 #include "bench_core.h"
-#include "mem_stat.h"
 #include "stability.h"
 
 /* ── Test mask ─────────────────────────────────────────────────── */
@@ -88,8 +87,7 @@ typedef struct {
     const char *performance_labels_en[NGCC_NUM_MSG_LENS]; /* key labels for JSON (English) */
     int performance_count;  /* how many entries actually ran */
     ngcc_stability_result_t stability;
-    uint64_t heap_baseline_bytes;
-    uint64_t heap_peak_bytes;
+    uint64_t static_memory_bytes;
     uint64_t peak_memory_bytes;
     int kat_used;
     unsigned long long kat_total;
@@ -100,7 +98,6 @@ typedef struct {
 /* ── Overall report ────────────────────────────────────────────── */
 typedef struct {
     test_report_t tests[NGCC_NUM_TESTS];
-    ngcc_static_mem_t static_mem;
 } run_report_t;
 
 /* ── Shared test table (defined in main.c) ─────────────────────── */

@@ -446,10 +446,7 @@ int write_json_report(const cli_options_t *opts,
         if (test->memory_status != STATUS_SKIPPED) {
             jw_begin_object(&w, L(lang, "内存指标", "memory_metrics"));
             jw_key_str(&w, L(lang, "状态", "status"), status_to_text(test->memory_status));
-            jw_key_llu(&w, L(lang, "堆内存基线(字节)", "heap_baseline_bytes"), (unsigned long long) test->heap_baseline_bytes);
-            jw_key_llu(&w, L(lang, "堆内存峰值(字节)", "heap_peak_bytes"), (unsigned long long) test->heap_peak_bytes);
-            jw_key_llu(&w, L(lang, "堆内存增量(字节)", "heap_delta_bytes"),
-                       (unsigned long long) ((long long) test->heap_peak_bytes - (long long) test->heap_baseline_bytes));
+            jw_key_llu(&w, L(lang, "静态内存占用(字节)", "static_memory_bytes"), (unsigned long long) test->static_memory_bytes);
             jw_key_llu(&w, L(lang, "峰值内存占用(字节)", "peak_memory_bytes"), (unsigned long long) test->peak_memory_bytes);
             jw_end_object(&w);
         } else {
@@ -459,15 +456,6 @@ int write_json_report(const cli_options_t *opts,
         jw_end_object(&w); /* test */
     }
     jw_end_object(&w); /* 测试结果 */
-
-    /* 静态内存（算法库共用） */
-    jw_begin_object(&w, L(lang, "静态内存", "static_memory"));
-    jw_key_llu(&w, L(lang, "代码段(字节)", "text_bytes"), (unsigned long long) report->static_mem.text_size);
-    jw_key_llu(&w, L(lang, "数据段(字节)", "data_bytes"), (unsigned long long) report->static_mem.data_size);
-    jw_key_llu(&w, L(lang, "BSS段(字节)", "bss_bytes"), (unsigned long long) report->static_mem.bss_size);
-    jw_key_llu(&w, L(lang, "只读数据段(字节)", "rodata_bytes"), (unsigned long long) report->static_mem.rodata_size);
-    jw_key_llu(&w, L(lang, "总计(字节)", "total_bytes"), (unsigned long long) report->static_mem.total);
-    jw_end_object(&w);
 
     /* 总体结果 */
     jw_begin_object(&w, L(lang, "总体结果", "overall"));

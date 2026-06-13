@@ -1076,12 +1076,6 @@ static void test_write_json_report_basic(void) {
     report.tests[0].stability.status[0] = 'W';
     strcpy(report.tests[0].stability.status, "UNSTABLE");
 
-    report.static_mem.text_size = 10;
-    report.static_mem.data_size = 20;
-    report.static_mem.bss_size = 30;
-    report.static_mem.rodata_size = 40;
-    report.static_mem.total = 100;
-
     /* Test Chinese output */
     TEST_ASSERT_INT_EQ(write_json_report(&opts, &report, 1, LANG_ZH, json_path), 0);
     TEST_ASSERT_INT_EQ(read_text_file(json_path, &json_data), 0);

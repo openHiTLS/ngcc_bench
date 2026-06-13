@@ -29,7 +29,7 @@
 
 - CMake >= 3.16
 - 支持 C11 的 GCC 或 Clang
-- Linux 下需要 `libdl`、`libm`；静态内存分析还依赖 `size`
+- Linux 下需要 `libdl`、`libm`
 
 ```bash
 mkdir build
@@ -143,8 +143,8 @@ KAT 解析支持 `#`、`;`、`//` 注释，以及 `0x` 前缀和常见字段别�
 ## 输出与限制
 
 - 加载器按 `--test` 按需加载符号；动态库只需导出实际被测算法的符号。
-- `memory` 输出包括一次 `[memory][static]` 和各算法的 `[<target>][memory][dynamic]`。
-- Linux 下内存指标最完整；非 Linux 平台上部分字段会返回 `unavailable` 或 `0`。
+- `memory` 会为每个算法启动独立 helper 进程，并在 JSON 中输出 `static_memory_bytes` 与 `peak_memory_bytes`。
+- 内存指标使用 Linux `VmSize`/`VmPeak`；非 Linux 平台可能不支持该模式。
 - stability 输出 `STABLE`、`UNSTABLE`，收到 `SIGINT` / `SIGTERM` 时输出 `STOPPED`。
 - stability 为 `UNSTABLE`、测试失败、参数错误或缺失符号时，程序返回非 `0`。
 - `--json-out` 生成中英文双份 JSON 报告。

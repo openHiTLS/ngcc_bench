@@ -57,7 +57,6 @@ typedef struct {
     uint64_t memory_end_bytes;
     uint64_t memory_min_bytes;
     uint64_t memory_max_bytes;
-    uint64_t memory_peak_rss_bytes;
     double memory_growth_percent;
 
     unsigned long long total_executions;

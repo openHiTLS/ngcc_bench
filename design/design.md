@@ -4,7 +4,7 @@
 > 本文是“目标设计 + 参考实现草案”的合集，不等同于当前仓库的已实现状态。  
 > 截至 2026-02-14，仓库已实现的是 `ngcc_bench` 非交互式 CLI 主程序（`ngcc_bench/src`），并已支持：
 > `hash/sig/kem/kex` + `correctness/performance/memory/stability` + 交互式入口（无参数运行）+ 可选 JSON 报告（`--json-out`）。  
-> 另外已支持 `hash/sig/kem/kex` 的 KAT（`--kat`）、性能分布统计（min/mean/median/max/stddev/CV）、稳定性阈值 CLI 可配置（`stable-*`/`warning-*`，JSON `schema_version=4` 记录阈值与原始稳定性等级），以及稳定性窗口采样（`--stability-sample-ms`）；多工具内存分析等仍属于设计项。  
+> 另外已支持 `hash/sig/kem/kex` 的 KAT（`--kat`）、性能分布统计（min/mean/median/max/stddev/CV）、稳定性阈值 CLI 可配置（`stable-*`/`warning-*`，JSON `schema_version=4` 记录阈值与原始稳定性等级），以及稳定性窗口采样（`--stability-sample-ms`）；内存测试已收敛为按算法粒度的 `VmSize/VmPeak` 方案。
 > 详细一致性对照见：`docs/design_alignment.md`。
 
 > [!NOTE]
@@ -24,7 +24,7 @@
 | 随机输入需要更可靠来源 | 采纳 | 优先 `getrandom(2)`，回退 `/dev/urandom` |
 | `sig_verify` 返回值语义 | 采纳 | 约定 `0 = success` |
 | Hash 需要显式摘要长度参数 | 采纳 | 增加 `--digest-len-bits` |
-| memory 测试是否 fork 隔离 | 不采纳 | 记录为进程级口径并在文档中说明限制 |
+| memory 测试是否 fork 隔离 | 采纳 | 采用 fork 子进程隔离每个算法的内存测量 |
 | 是否默认引入 JSON/verbose/config file | 有选择采纳 | 当前保留 `--json-out`，其余保持最简 |
 
 ## 1. 概述
@@ -39,7 +39,7 @@
 |---------|---------|
 | **正确性测试** | 测试向量通过率 |
 | **性能测试** | 时钟周期数、吞吐量 |
-| **内存测试** | 静态/峰值内存占用 |
+| **内存测试** | 静态/峰值内存占用（按算法粒度） |
 | **稳定性测试** | 长时间运行指标波动 |
 
 ---
@@ -795,218 +795,51 @@ void print_perf_result_console(const PerfResult* r, const char* algo_name) {
 ### 5.1 测试内容
 
 > [!IMPORTANT]
-> **内存测试的对象是算法库 (.so 文件)，而非测试工具本身**
+> **内存测试的对象是单个算法对应的 `.so`，不是测试工具本身，也不是整个进程的 RSS。**
 
-| 类型 | 指标 | 测量方法 |
+当前实现按算法粒度输出两个指标：
+
+| 指标 | 含义 | 计算方式 |
 |-----|------|---------|
-| **静态内存** | .text/.data/.bss/.rodata 段大小 | `size -A` 命令解析 ELF |
-| **动态内存** | 堆分配增量（运行前后差值） | `mallinfo2()` 差值 |
-| **深度分析（可选）** | 堆峰值、分配次数、**泄漏检测**、调用栈 | Heaptrack（~10%开销） |
+| **静态内存占用** | 算法加载后、未执行运算时的基础内存占用，包含代码段、常量、全局变量等静态资源 | `loaded_vmsize - base_vmsize` |
+| **峰值内存占用** | 算法运行过程中观测到的最大内存空间，包含堆、栈、代码段、常量、全局变量等 | `vmpeak - base_vmsize` |
 
-**内存测试架构**：
-- `size -A`: 回答"算法库本身有多大"（代码、常量、全局变量）
-- `mallinfo2()` 差值: 回答"运行算法时动态分配了多少堆内存"
+其中：
 
-### 5.2 工具选择菜单
+- `base_vmsize`：子进程在 `dlopen` 目标库之前读取的 `VmSize`
+- `loaded_vmsize`：子进程 `dlopen` 目标库之后读取的 `VmSize`
+- `vmpeak`：子进程运行算法过程中的 `VmPeak`
 
-```
-╔══════════════════════════════════════════════╗
-║  内存测试配置                                ║
-╠══════════════════════════════════════════════╣
-║  [1] 快速分析 (静态段 + /proc/self/status)   ║
-║  [2] Heaptrack 详细分析 [推荐]               ║
-║  [0] 返回上级                                ║
-╚══════════════════════════════════════════════╝
-```
+### 5.2 实现方式
 
-### 5.3 静态内存分析
-
-> [!IMPORTANT]
-> **测试对象：算法库 .so 文件，而非测试工具 ./ngcc_bench**
-
-使用 `size` 命令解析算法库的 ELF 段：
-
-```c
-// tests/src/memory_test.c (静态分析部分)
-
-typedef struct {
-    size_t text_size;       // 代码段
-    size_t data_size;       // 已初始化数据
-    size_t bss_size;        // 未初始化数据
-    size_t rodata_size;     // 只读数据
-    size_t tdata_size;      // TLS 已初始化数据
-    size_t tbss_size;       // TLS 未初始化数据
-    size_t total_static;    // 总静态内存
-} StaticMemoryResult;
-
-int analyze_static_memory(const char* library_path, StaticMemoryResult* result) {
-    char cmd[256];
-
-    // 解析 .so 库的段大小
-    snprintf(cmd, sizeof(cmd), "size -A %s", library_path);
-
-    FILE* fp = popen(cmd, "r");
-    if (!fp) return -1;
-
-    char line[256];
-    while (fgets(line, sizeof(line), fp)) {
-        size_t size;
-        if (sscanf(line, ".text %zu", &size) == 1)
-            result->text_size = size;
-        else if (sscanf(line, ".data %zu", &size) == 1)
-            result->data_size = size;
-        else if (sscanf(line, ".bss %zu", &size) == 1)
-            result->bss_size = size;
-        else if (sscanf(line, ".rodata %zu", &size) == 1)
-            result->rodata_size = size;
-        else if (sscanf(line, ".tdata %zu", &size) == 1)
-            result->tdata_size = size;
-        else if (sscanf(line, ".tbss %zu", &size) == 1)
-            result->tbss_size = size;
-    }
-    pclose(fp);
-
-    result->total_static = result->text_size + result->data_size +
-                           result->bss_size + result->rodata_size +
-                           result->tdata_size + result->tbss_size;
-
-    return 0;
-}
+```text
+parent
+  fork()
+    child:
+      base_vmsize = read VmSize
+      dlopen(lib.so)
+      loaded_vmsize = read VmSize
+      run_algorithm()
+      vmpeak = read VmPeak
+      static_memory_bytes = loaded_vmsize - base_vmsize
+      peak_memory_bytes = vmpeak - base_vmsize
+      write result to pipe
+  parent:
+      read result
+      waitpid()
 ```
 
-### 5.4 动态内存分析 (mallinfo2)
+### 5.3 结果归属
 
-**优势**: 精确归因到算法库、零采样开销、无需外部工具
+- 内存指标写入每个算法自己的 `memory_metrics`
+- 控制台只输出 `PASS` / `FAIL`
+- JSON 中不再保留顶层 `memory` 或 `static_memory` 汇总块
 
-使用 glibc `mallinfo2()` 测量运行前后堆分配差值，精确反映算法运行时的动态内存占用：
+### 5.4 备注
 
-```c
-// ngcc_bench/src/mem_stat.c (动态分析部分)
-
-// 需要 glibc >= 2.33
-#if defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 33))
-#include <malloc.h>
-#define HAVE_MALLINFO2 1
-#endif
-
-uint64_t ngcc_mem_heap_bytes(void) {
-#if HAVE_MALLINFO2
-    struct mallinfo2 mi = mallinfo2();
-    return (uint64_t) mi.uordblks;    // 当前已分配的堆内存
-#else
-    return 0;
-#endif
-}
-```
-
-**使用方式**：
-
-```c
-uint64_t heap_before = ngcc_mem_heap_bytes();
-run_algorithm();
-uint64_t heap_after  = ngcc_mem_heap_bytes();
-int64_t  heap_delta  = heap_after - heap_before;  // 算法的堆分配增量
-```
-
-> [!NOTE]
-> `mallinfo2()` 只统计 glibc malloc 管理的堆内存，不包含 mmap 大块分配。
-> 对于算法库场景，这通常已足够覆盖。
-
-### 5.5 Heaptrack 详细分析 (可选扩展)
-
-**优势**: 低开销、详细分析、支持GUI可视化
-
-> [!IMPORTANT]
-> **Heaptrack 无法直接运行 .so 文件，需要创建测试程序加载算法库**
-
-```bash
-# 安装
-sudo apt install heaptrack
-```
-
-```c
-// tests/src/memory_test.c (heaptrack 部分)
-
-typedef struct {
-    size_t heap_peak;           // 峰值堆内存
-    size_t total_allocations;   // 总分配次数
-    size_t leaked_bytes;        // 泄漏字节数
-} HeaptrackResult;
-
-/**
- * 创建测试程序加载算法库
- */
-int create_test_harness(const char* library_path, const char* harness_path) {
-    FILE* fp = fopen(harness_path, "w");
-    if (!fp) return -1;
-
-    fprintf(fp, "#include <dlfcn.h>\n");
-    fprintf(fp, "#include <stdio.h>\n");
-    fprintf(fp, "int main() {\n");
-    fprintf(fp, "    void* handle = dlopen(\"%s\", RTLD_NOW);\n", library_path);
-    fprintf(fp, "    if (!handle) return 1;\n");
-    fprintf(fp, "    // 调用算法初始化和测试函数\n");
-    fprintf(fp, "    void (*test_fn)() = dlsym(handle, \"algorithm_test\");\n");
-    fprintf(fp, "    if (test_fn) test_fn();\n");
-    fprintf(fp, "    dlclose(handle);\n");
-    fprintf(fp, "    return 0;\n");
-    fprintf(fp, "}\n");
-    fclose(fp);
-
-    // 编译测试程序
-    char cmd[512];
-    snprintf(cmd, sizeof(cmd), "gcc -o %s.out %s -ldl", harness_path, harness_path);
-    return system(cmd);
-}
-
-int run_heaptrack_test(const char* library_path, HeaptrackResult* result) {
-    char harness_path[256], outfile[256], cmd[512];
-
-    snprintf(harness_path, sizeof(harness_path), "/tmp/ngcc_harness_%d.c", getpid());
-    snprintf(outfile, sizeof(outfile), "/tmp/ngcc_heap_%d.gz", getpid());
-
-    // 创建并编译测试程序
-    if (create_test_harness(library_path, harness_path) != 0) {
-        return -1;
-    }
-
-    // 运行 heaptrack
-    snprintf(cmd, sizeof(cmd), "heaptrack -o %s %s.out >/dev/null 2>&1",
-             outfile, harness_path);
-    system(cmd);
-
-    // 解析结果
-    snprintf(cmd, sizeof(cmd), "heaptrack_print %s 2>/dev/null", outfile);
-    FILE* fp = popen(cmd, "r");
-
-    char line[256];
-    while (fgets(line, sizeof(line), fp)) {
-        if (strstr(line, "peak heap"))
-            sscanf(line, "%*[^0-9]%zu", &result->heap_peak);
-        else if (strstr(line, "total allocations"))
-            sscanf(line, "%*[^0-9]%zu", &result->total_allocations);
-        else if (strstr(line, "leaked"))
-            sscanf(line, "%*[^0-9]%zu", &result->leaked_bytes);
-    }
-    pclose(fp);
-
-    // 清理临时文件
-    unlink(outfile);
-    unlink(harness_path);
-    snprintf(cmd, sizeof(cmd), "%s.out", harness_path);
-    unlink(cmd);
-
-    return 0;
-}
-```
-
-### 5.6 工具对比
-
-| 工具 | 开销 | 精度 | 适用场景 |
-|-----|------|------|---------|
-| **静态分析 (size -A)** | 无 | 精确 | ELF段大小 |
-| **mallinfo2() 差值** | 无 | 高 | 堆分配增量，精确归因 ✅ |
-| **Heaptrack** | 低(~10%) | 高 | 堆内存详细分析（可选） |
+- 当前口径是 **虚拟内存空间峰值**，不是 RSS
+- 这样能覆盖代码段、常量、全局变量，以及运行期间出现的堆和栈变化
+- 指标语义和 `stability` 模式保持一致，均以 `VmSize` 作为采样基础
 
 ---
 
@@ -1021,7 +854,7 @@ int run_heaptrack_test(const char* library_path, HeaptrackResult* result) {
 > [!IMPORTANT]
 > **与其他测试模块保持一致**：
 > - **计时方案**：复用 `cycle_counter` 周期来源选择，并使用 `clock_gettime(CLOCK_MONOTONIC)` 统计时间；周期不可用时降级为 time-only
-> - **内存监控**：使用 `/proc/self/status` 的 `VmRSS`（与内存测试一致，实时当前值）
+> - **内存监控**：使用 `/proc/self/status` 的 `VmSize`（与内存测试一致，实时当前值）
 > - **统计算法**：使用 Welford 在线算法（避免存储所有轮次数据）
 
 | 指标 | 说明 | 判定标准 |
@@ -1029,7 +862,7 @@ int run_heaptrack_test(const char* library_path, HeaptrackResult* result) {
 | **吞吐量变异系数 (throughput_cv)** | 多轮测试吞吐量的波动程度 | CV < 5% 为稳定 |
 | **CPU周期稳定性 (counts_cv)** | 当前可用周期来源的计数波动；不可用时标记为 unavailable | CV < 5% 为稳定 |
 | **时间稳定性 (time_cv)** | 时间均值的波动程度 | CV < 5% 为稳定 |
-| **内存增长率** | VmRSS 从开始到结束的增长 | 增长 < 1% 为无泄漏 |
+| **内存增长率** | VmSize 从开始到结束的增长 | 增长 < 1% 为无泄漏 |
 | **错误率** | 长时间运行中的错误发生率 | 0% 为通过 |
 
 ### 6.2 测试配置
@@ -1085,12 +918,12 @@ typedef struct {
     double time_stddev_ns;      // 时间标准差 (纳秒)
     double time_cv;             // 时间变异系数
 
-    // 内存统计 (VmRSS from /proc/self/status)
-    size_t memory_start_kb;     // 初始内存占用 (KB)
-    size_t memory_end_kb;       // 结束时内存占用 (KB)
-    size_t memory_min_kb;       // 最小内存占用 (KB)
-    size_t memory_max_kb;       // 最大内存占用 (KB)
-    double memory_growth_rate;  // 内存增长率 (%)
+    // 内存统计 (VmSize from /proc/self/status)
+    size_t memory_start_bytes;   // 初始内存占用 (bytes)
+    size_t memory_end_bytes;     // 结束时内存占用 (bytes)
+    size_t memory_min_bytes;     // 最小内存占用 (bytes)
+    size_t memory_max_bytes;     // 最大内存占用 (bytes)
+    double memory_growth_rate;   // 内存增长率 (%)
 
     // 错误统计
     uint32_t total_executions;  // 总执行次数
@@ -1127,22 +960,22 @@ typedef struct {
 #include "welford.h"
 
 /**
- * 从 /proc/self/status 读取 VmRSS（当前物理内存占用）
+ * 从 /proc/self/status 读取 VmSize（当前虚拟内存占用）
  */
-static size_t get_current_memory_kb(void) {
+static size_t get_current_memory_bytes(void) {
     FILE* fp = fopen("/proc/self/status", "r");
     if (!fp) return 0;
 
     char line[256];
-    size_t vm_rss = 0;
+    size_t vm_size_kb = 0;
 
     while (fgets(line, sizeof(line), fp)) {
-        if (sscanf(line, "VmRSS: %zu kB", &vm_rss) == 1) {
+        if (sscanf(line, "VmSize: %zu kB", &vm_size_kb) == 1) {
             break;
         }
     }
     fclose(fp);
-    return vm_rss;
+    return vm_size_kb * 1024;
 }
 
 /**
@@ -1167,9 +1000,9 @@ int run_stability_test(AlgorithmContext* ctx,
 
     // 初始化结果
     memset(result, 0, sizeof(StabilityResult));
-    result->memory_start_kb = get_current_memory_kb();
-    result->memory_min_kb = result->memory_start_kb;
-    result->memory_max_kb = result->memory_start_kb;
+    result->memory_start_bytes = get_current_memory_bytes();
+    result->memory_min_bytes = result->memory_start_bytes;
+    result->memory_max_bytes = result->memory_start_bytes;
 
     cycle_counter_t counter;
     int cycles_available = (cycle_counter_open(&counter, cycles_enabled) == 0 &&
@@ -1232,9 +1065,9 @@ int run_stability_test(AlgorithmContext* ctx,
         welford_update(&time_stat, (uint64_t)round_time_avg_ns);
 
         // 采样内存
-        size_t current_mem = get_current_memory_kb();
-        if (current_mem < result->memory_min_kb) result->memory_min_kb = current_mem;
-        if (current_mem > result->memory_max_kb) result->memory_max_kb = current_mem;
+        size_t current_mem = get_current_memory_bytes();
+        if (current_mem < result->memory_min_bytes) result->memory_min_bytes = current_mem;
+        if (current_mem > result->memory_max_bytes) result->memory_max_bytes = current_mem;
 
         // 轮间冷却
         if (round < config->num_rounds - 1 && config->cooldown_ms > 0) {
@@ -1267,11 +1100,11 @@ int run_stability_test(AlgorithmContext* ctx,
                       (result->time_stddev_ns / result->time_mean_ns) : 0;
 
     // 内存统计
-    result->memory_end_kb = get_current_memory_kb();
-    if (result->memory_start_kb > 0) {
+    result->memory_end_bytes = get_current_memory_bytes();
+    if (result->memory_start_bytes > 0) {
         result->memory_growth_rate = 100.0 *
-            (double)(result->memory_end_kb - result->memory_start_kb) /
-            result->memory_start_kb;
+            (double)(result->memory_end_bytes - result->memory_start_bytes) /
+            result->memory_start_bytes;
     } else {
         result->memory_growth_rate = 0;
     }
@@ -1451,48 +1284,24 @@ int run_stability_test(AlgorithmContext* ctx,
 
 #### 控制台格式
 ```
-═══════════════════════════════════════════════
-  内存测试结果
-═══════════════════════════════════════════════
-  分析工具:       Heaptrack
-  
-  ┌─ 静态内存 ─────────────────────────────────┐
-  │  .text  (代码段):     2,048 bytes          │
-  │  .data  (数据段):       512 bytes          │
-  │  .bss   (BSS段):      1,024 bytes          │
-  │  .rodata(只读段):     1,280 bytes          │
-  │  ─────────────────────────────             │
-  │  总计:                4,864 bytes          │
-  └────────────────────────────────────────────┘
-  
-  ┌─ 动态内存 ─────────────────────────────────┐
-  │  峰值堆内存:          65,536 bytes (64 KB) │
-  │  总分配次数:          150 次               │
-  │  内存泄漏:            0 bytes     ✓        │
-  └────────────────────────────────────────────┘
-  
-  测试状态:       ✓ 无泄漏
-═══════════════════════════════════════════════
+[memory] BEGIN
+[memory] END status=PASS
 ```
 
 #### JSON 格式
 ```json
 {
   "test_type": "memory",
-  "tool": "heaptrack",
-  "static": {
-    "text": 2048,
-    "data": 512,
-    "bss": 1024,
-    "rodata": 1280,
-    "total": 4864
+  "test_results": {
+    "hash": {
+      "memory_metrics": {
+        "status": "PASS",
+        "static_memory_bytes": 4864,
+        "peak_memory_bytes": 65536
+      }
+    }
   },
-  "dynamic": {
-    "heap_peak": 65536,
-    "total_allocations": 150,
-    "leaked_bytes": 0
-  },
-  "status": "NO_LEAK"
+  "status": "PASS"
 }
 ```
 
@@ -1591,9 +1400,8 @@ void output_performance_result(const PerfResult* r,
                                OutputMode mode);
 
 // 输出内存测试结果
-void output_memory_result(const StaticMemoryResult* static_mem,
-                          const HeaptrackResult* heap,
-                          const char* tool_name,
+void output_memory_result(const MemoryMetrics* r,
+                          const char* algorithm_name,
                           OutputMode mode);
 
 // 输出稳定性测试结果
@@ -1680,8 +1488,8 @@ void output_stability_result(const StabilityResult* r,
             fprintf(fp, "    \"cv\": %.4f\n", r->cycles_cv);
             fprintf(fp, "  },\n");
             fprintf(fp, "  \"memory\": {\n");
-            fprintf(fp, "    \"start_bytes\": %zu,\n", r->memory_start);
-            fprintf(fp, "    \"end_bytes\": %zu,\n", r->memory_end);
+            fprintf(fp, "    \"start_bytes\": %zu,\n", r->memory_start_bytes);
+            fprintf(fp, "    \"end_bytes\": %zu,\n", r->memory_end_bytes);
             fprintf(fp, "    \"growth_rate\": %.4f\n", r->memory_growth_rate / 100.0);
             fprintf(fp, "  },\n");
             fprintf(fp, "  \"errors\": {\n");
@@ -1747,10 +1555,11 @@ void output_stability_result(const StabilityResult* r,
     "throughput_bytes_sec": 93230000
   },
   "memory": {
-    "status": "NO_LEAK",
-    "static_total": 4864,
-    "heap_peak": 65536,
-    "leaked_bytes": 0
+    "hash": {
+      "status": "PASS",
+      "static_memory_bytes": 4864,
+      "peak_memory_bytes": 65536
+    }
   },
   "stability": {
     "status": "STABLE",
