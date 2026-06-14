@@ -247,6 +247,20 @@ static int kex_run_once(const ngcc_api_t *api,
         }
     }
 
+    if (ma == NULL || mb == NULL ||
+        !kex_is_valid_output_len(ma_len, msg_cap) ||
+        !kex_is_valid_output_len(mb_len, msg_cap)) {
+        ngcc_log_error("[kex] missing final messages or invalid lengths: ma_null=%d mb_null=%d ma_len=%llu mb_len=%llu msg_cap=%llu passes=%llu rc=%d",
+                       ma == NULL,
+                       mb == NULL,
+                       ma_len,
+                       mb_len,
+                       msg_cap,
+                       passes,
+                       rc);
+        return -1;
+    }
+
     memset(ssa, 0xA5, (size_t) ss_cap);
     if (api->kex_derive_ss_a(ska, ska_len, pkb, pkb_len, mb, mb_len, sta, sta_len, ssa, &ssa_len) != 0) {
         ngcc_log_error("[kex] kex_derive_ss_a failed: ska_len=%llu pkb_len=%llu mb_len=%llu sta_len=%llu ss_cap=%llu",

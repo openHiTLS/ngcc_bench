@@ -310,7 +310,10 @@ int write_json_report(const cli_options_t *opts,
     jw_key_double(&w, L(lang, "吞吐量变异系数(%)", "throughput_cv_percent"), opts->stability_thresholds.stable_throughput_cv_percent);
     jw_key_double(&w, L(lang, "CPU周期变异系数(%)", "cycles_cv_percent"), opts->stability_thresholds.stable_cycles_cv_percent);
     jw_key_double(&w, L(lang, "耗时变异系数(%)", "time_cv_percent"), opts->stability_thresholds.stable_time_cv_percent);
-    jw_key_double(&w, L(lang, "内存增长(%)", "memory_growth_percent"), opts->stability_thresholds.stable_memory_growth_percent);
+    jw_key_double(&w, L(lang, "堆内存增长阈值(%)", "stable_heap_growth_percent"), opts->stability_thresholds.stable_heap_growth_percent);
+    jw_key_llu(&w, L(lang, "堆内存增长绝对阈值(字节)", "stable_heap_growth_abs_bytes"), (unsigned long long) opts->stability_thresholds.stable_heap_growth_abs_bytes);
+    jw_key_double(&w, L(lang, "物理内存增长阈值(%)", "stable_rss_growth_percent"), opts->stability_thresholds.stable_rss_growth_percent);
+    jw_key_llu(&w, L(lang, "物理内存增长绝对阈值(字节)", "stable_rss_growth_abs_bytes"), (unsigned long long) opts->stability_thresholds.stable_rss_growth_abs_bytes);
     jw_key_double(&w, L(lang, "错误率(%)", "error_rate_percent"), opts->stability_thresholds.stable_error_rate_percent);
     jw_end_object(&w);
 
@@ -397,11 +400,6 @@ int write_json_report(const cli_options_t *opts,
             jw_key_bool(&w, L(lang, "是否中断", "interrupted"), test->stability.interrupted);
             jw_key_bool(&w, L(lang, "是否失败", "failed_flag"), test->stability.failed);
             jw_key_str(&w, L(lang, "状态", "status"), test->stability.status);
-            jw_key_double(&w, L(lang, "操作吞吐量均值(次/秒)", "throughput_mean_ops"), test->stability.throughput_mean_ops);
-            jw_key_double(&w, L(lang, "操作吞吐量标准差(次/秒)", "throughput_stddev_ops"), test->stability.throughput_stddev_ops);
-            jw_key_double(&w, L(lang, "操作吞吐量变异系数(%)", "throughput_cv_percent_ops"), test->stability.throughput_cv_percent);
-            jw_key_double(&w, L(lang, "操作吞吐量最小值(次/秒)", "throughput_min_ops"), test->stability.throughput_min_ops);
-            jw_key_double(&w, L(lang, "操作吞吐量最大值(次/秒)", "throughput_max_ops"), test->stability.throughput_max_ops);
             if (test->is_hash) {
                 jw_key_double(&w, L(lang, "吞吐量均值(MB/s)", "throughput_mean_mb_per_sec"), test->stability.throughput_mean_mb);
                 jw_key_double(&w, L(lang, "吞吐量标准差(MB/s)", "throughput_stddev_mb_per_sec"), test->stability.throughput_stddev_mb);
@@ -409,11 +407,11 @@ int write_json_report(const cli_options_t *opts,
                 jw_key_double(&w, L(lang, "吞吐量最小值(MB/s)", "throughput_min_mb_per_sec"), test->stability.throughput_min_mb);
                 jw_key_double(&w, L(lang, "吞吐量最大值(MB/s)", "throughput_max_mb_per_sec"), test->stability.throughput_max_mb);
             } else {
-                jw_key_double(&w, L(lang, "字节吞吐量均值(字节/秒)", "throughput_mean_bytes"), test->stability.throughput_mean_bytes);
-                jw_key_double(&w, L(lang, "字节吞吐量标准差(字节/秒)", "throughput_stddev_bytes"), test->stability.throughput_stddev_bytes);
-                jw_key_double(&w, L(lang, "字节吞吐量变异系数(%)", "throughput_cv_percent_bytes"), test->stability.throughput_cv_percent_bytes);
-                jw_key_double(&w, L(lang, "字节吞吐量最小值(字节/秒)", "throughput_min_bytes"), test->stability.throughput_min_bytes);
-                jw_key_double(&w, L(lang, "字节吞吐量最大值(字节/秒)", "throughput_max_bytes"), test->stability.throughput_max_bytes);
+                jw_key_double(&w, L(lang, "操作吞吐量均值(次/秒)", "throughput_mean_ops"), test->stability.throughput_mean_ops);
+                jw_key_double(&w, L(lang, "操作吞吐量标准差(次/秒)", "throughput_stddev_ops"), test->stability.throughput_stddev_ops);
+                jw_key_double(&w, L(lang, "操作吞吐量变异系数(%)", "throughput_cv_percent_ops"), test->stability.throughput_cv_percent);
+                jw_key_double(&w, L(lang, "操作吞吐量最小值(次/秒)", "throughput_min_ops"), test->stability.throughput_min_ops);
+                jw_key_double(&w, L(lang, "操作吞吐量最大值(次/秒)", "throughput_max_ops"), test->stability.throughput_max_ops);
             }
             if (test->stability.cycles_available) {
                 jw_key_double(&w, L(lang, "CPU周期均值(周期/次)", "cycles_per_op_mean"), test->stability.cycles_mean);
@@ -427,9 +425,12 @@ int write_json_report(const cli_options_t *opts,
             jw_key_double(&w, L(lang, "单次耗时变异系数(%)", "time_ms_cv_percent"), test->stability.time_cv_percent);
             jw_key_double(&w, L(lang, "单次耗时最小值(毫秒)", "time_min_ms"), test->stability.time_min_ms);
             jw_key_double(&w, L(lang, "单次耗时最大值(毫秒)", "time_max_ms"), test->stability.time_max_ms);
-            jw_key_llu(&w, L(lang, "内存最小值(字节)", "memory_min_bytes"), (unsigned long long) test->stability.memory_min_bytes);
-            jw_key_llu(&w, L(lang, "内存最大值(字节)", "memory_max_bytes"), (unsigned long long) test->stability.memory_max_bytes);
-            jw_key_double(&w, L(lang, "内存增长(%)", "memory_growth_percent"), test->stability.memory_growth_percent);
+            jw_key_llu(&w, L(lang, "堆内存起始(字节)", "heap_start_bytes"), (unsigned long long) test->stability.heap_start_bytes);
+            jw_key_llu(&w, L(lang, "堆内存结束(字节)", "heap_end_bytes"), (unsigned long long) test->stability.heap_end_bytes);
+            jw_key_llu(&w, L(lang, "堆内存增长(字节)", "heap_growth_abs_bytes"), (unsigned long long) (test->stability.heap_end_bytes > test->stability.heap_start_bytes ? test->stability.heap_end_bytes - test->stability.heap_start_bytes : test->stability.heap_start_bytes - test->stability.heap_end_bytes));
+            jw_key_double(&w, L(lang, "堆内存增长(%)", "heap_growth_percent"), test->stability.heap_growth_percent);
+            jw_key_llu(&w, L(lang, "物理内存增长(字节)", "rss_growth_abs_bytes"), (unsigned long long) (test->stability.rss_end_bytes > test->stability.rss_start_bytes ? test->stability.rss_end_bytes - test->stability.rss_start_bytes : test->stability.rss_start_bytes - test->stability.rss_end_bytes));
+            jw_key_double(&w, L(lang, "物理内存增长(%)", "rss_growth_percent"), test->stability.rss_growth_percent);
             jw_key_llu(&w, L(lang, "总执行次数(次)", "total_executions"), test->stability.total_executions);
             jw_key_llu(&w, L(lang, "错误次数(次)", "error_count"), test->stability.error_count);
             jw_key_double(&w, L(lang, "错误率(%)", "error_rate_percent"), test->stability.error_rate_percent);
@@ -446,10 +447,7 @@ int write_json_report(const cli_options_t *opts,
         if (test->memory_status != STATUS_SKIPPED) {
             jw_begin_object(&w, L(lang, "内存指标", "memory_metrics"));
             jw_key_str(&w, L(lang, "状态", "status"), status_to_text(test->memory_status));
-            jw_key_llu(&w, L(lang, "堆内存基线(字节)", "heap_baseline_bytes"), (unsigned long long) test->heap_baseline_bytes);
-            jw_key_llu(&w, L(lang, "堆内存峰值(字节)", "heap_peak_bytes"), (unsigned long long) test->heap_peak_bytes);
-            jw_key_llu(&w, L(lang, "堆内存增量(字节)", "heap_delta_bytes"),
-                       (unsigned long long) ((long long) test->heap_peak_bytes - (long long) test->heap_baseline_bytes));
+            jw_key_llu(&w, L(lang, "静态内存占用(字节)", "static_memory_bytes"), (unsigned long long) test->static_memory_bytes);
             jw_key_llu(&w, L(lang, "峰值内存占用(字节)", "peak_memory_bytes"), (unsigned long long) test->peak_memory_bytes);
             jw_end_object(&w);
         } else {
@@ -459,15 +457,6 @@ int write_json_report(const cli_options_t *opts,
         jw_end_object(&w); /* test */
     }
     jw_end_object(&w); /* 测试结果 */
-
-    /* 静态内存（算法库共用） */
-    jw_begin_object(&w, L(lang, "静态内存", "static_memory"));
-    jw_key_llu(&w, L(lang, "代码段(字节)", "text_bytes"), (unsigned long long) report->static_mem.text_size);
-    jw_key_llu(&w, L(lang, "数据段(字节)", "data_bytes"), (unsigned long long) report->static_mem.data_size);
-    jw_key_llu(&w, L(lang, "BSS段(字节)", "bss_bytes"), (unsigned long long) report->static_mem.bss_size);
-    jw_key_llu(&w, L(lang, "只读数据段(字节)", "rodata_bytes"), (unsigned long long) report->static_mem.rodata_size);
-    jw_key_llu(&w, L(lang, "总计(字节)", "total_bytes"), (unsigned long long) report->static_mem.total);
-    jw_end_object(&w);
 
     /* 总体结果 */
     jw_begin_object(&w, L(lang, "总体结果", "overall"));

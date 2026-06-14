@@ -1016,7 +1016,10 @@ static void test_stability_thresholds_defaults(void) {
     TEST_ASSERT(t.stable_throughput_cv_percent > 0.0);
     TEST_ASSERT(t.stable_cycles_cv_percent > 0.0);
     TEST_ASSERT(t.stable_time_cv_percent > 0.0);
-    TEST_ASSERT(t.stable_memory_growth_percent > 0.0);
+    TEST_ASSERT(t.stable_heap_growth_percent > 0.0);
+    TEST_ASSERT(t.stable_heap_growth_abs_bytes > 0);
+    TEST_ASSERT(t.stable_rss_growth_percent > 0.0);
+    TEST_ASSERT(t.stable_rss_growth_abs_bytes > 0);
     TEST_ASSERT(t.stable_error_rate_percent >= 0.0);
 }
 
@@ -1075,12 +1078,6 @@ static void test_write_json_report_basic(void) {
     report.tests[0].performance[0].time_ms_cv_percent = 5.0;
     report.tests[0].stability.status[0] = 'W';
     strcpy(report.tests[0].stability.status, "UNSTABLE");
-
-    report.static_mem.text_size = 10;
-    report.static_mem.data_size = 20;
-    report.static_mem.bss_size = 30;
-    report.static_mem.rodata_size = 40;
-    report.static_mem.total = 100;
 
     /* Test Chinese output */
     TEST_ASSERT_INT_EQ(write_json_report(&opts, &report, 1, LANG_ZH, json_path), 0);
@@ -1161,7 +1158,8 @@ static void test_run_stability_single_success(void) {
     ngcc_stability_thresholds_set_defaults(&thresholds);
     thresholds.stable_throughput_cv_percent = 100.0;
     thresholds.stable_time_cv_percent = 100.0;
-    thresholds.stable_memory_growth_percent = 100.0;
+    thresholds.stable_heap_growth_percent = 100.0;
+    thresholds.stable_rss_growth_percent = 100.0;
     TEST_ASSERT_INT_EQ(ngcc_run_stability(&api,
                                           stability_stub_success,
                                           stability_stub_bytes,

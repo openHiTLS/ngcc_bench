@@ -30,7 +30,7 @@ Requirements:
 
 - CMake >= 3.16
 - GCC or Clang with C11 support
-- On Linux, `libdl` and `libm`; static memory analysis also requires `size`
+- On Linux, `libdl` and `libm`
 
 ```bash
 mkdir build
@@ -152,10 +152,10 @@ field aliases.
 
 - Symbols are loaded on demand according to `--test`. A dynamic library only
   needs to export the symbols for the selected algorithms.
-- `memory` prints one `[memory][static]` entry and one
-  `[<target>][memory][dynamic]` entry for each algorithm.
-- Memory metrics are most complete on Linux. Some fields return `unavailable`
-  or `0` on other platforms.
+- `memory` runs each selected algorithm in an isolated helper process and
+  reports `static_memory_bytes` and `peak_memory_bytes` in JSON output.
+- Memory metrics use Linux `VmSize`/`VmPeak`; non-Linux platforms may not
+  support this mode.
 - Stability tests print `STABLE` or `UNSTABLE`, and print `STOPPED` when
   interrupted by `SIGINT` / `SIGTERM`.
 - The program returns a non-zero exit code for `UNSTABLE` results, test

@@ -73,14 +73,20 @@ def main() -> int:
         "stable_throughput_cv_percent",
         "stable_cycles_cv_percent",
         "stable_time_cv_percent",
-        "stable_memory_growth_percent",
+        "stable_heap_growth_percent",
+        "stable_heap_growth_abs_bytes",
+        "stable_rss_growth_percent",
+        "stable_rss_growth_abs_bytes",
         "stable_error_rate_percent",
     )
     warning_keys = (
         "warning_throughput_cv_percent",
         "warning_cycles_cv_percent",
         "warning_time_cv_percent",
-        "warning_memory_growth_percent",
+        "warning_heap_growth_percent",
+        "warning_heap_growth_abs_bytes",
+        "warning_rss_growth_percent",
+        "warning_rss_growth_abs_bytes",
         "warning_error_rate_percent",
     )
     for k in stable_keys + warning_keys:
@@ -89,7 +95,9 @@ def main() -> int:
     for s, w in zip(stable_keys, warning_keys):
         expect(float(thr[w]) >= float(thr[s]), f"threshold pair invalid: {w} < {s}")
 
-    tests = require_key(report, "tests")
+    tests = report.get("test_results")
+    if tests is None:
+        tests = require_key(report, "tests")
     run_statuses = {"PASS", "FAIL", "STOPPED", "SKIPPED"}
     stability_statuses = run_statuses if schema_version <= 3 else {
         "STABLE", "WARNING", "UNSTABLE", "FAIL", "STOPPED", "SKIPPED"
@@ -103,6 +111,7 @@ def main() -> int:
         expect("kat" in t, f"tests.{name}.kat missing")
         expect("performance_metrics" in t, f"tests.{name}.performance_metrics missing")
         expect("stability_metrics" in t, f"tests.{name}.stability_metrics missing")
+        expect("memory_metrics" in t, f"tests.{name}.memory_metrics missing")
 
         metrics = t["stability_metrics"]
         if metrics is not None and schema_version >= 4:
@@ -110,13 +119,13 @@ def main() -> int:
             expect(require_key(metrics, "status") in {"STABLE", "WARNING", "UNSTABLE"},
                    f"tests.{name}.stability_metrics.status invalid")
 
-    mem = require_key(report, "memory")
-    expect(require_key(mem, "status") in run_statuses, "memory.status invalid")
-    static_mem = require_key(mem, "static_mem")
-    for k in ("text_bytes", "data_bytes", "bss_bytes", "rodata_bytes", "total_bytes"):
-        expect(isinstance(require_key(static_mem, k), int), f"memory.static_mem.{k} must be integer")
-    expect(isinstance(require_key(mem, "heap_baseline_bytes"), int), "memory.heap_baseline_bytes must be integer")
-    expect(isinstance(require_key(mem, "heap_peak_bytes"), int), "memory.heap_peak_bytes must be integer")
+        mem_metrics = t["memory_metrics"]
+        if mem_metrics is not None:
+            expect(require_key(mem_metrics, "status") in run_statuses, f"tests.{name}.memory_metrics.status invalid")
+            expect(isinstance(require_key(mem_metrics, "static_memory_bytes"), int),
+                   f"tests.{name}.memory_metrics.static_memory_bytes must be integer")
+            expect(isinstance(require_key(mem_metrics, "peak_memory_bytes"), int),
+                   f"tests.{name}.memory_metrics.peak_memory_bytes must be integer")
 
     overall = require_key(report, "overall")
     expect(require_key(overall, "status") in ("PASS", "FAIL"), "overall.status invalid")
