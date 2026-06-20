@@ -22,6 +22,8 @@ typedef int (*kex_pass_fn_t)(unsigned char *sk, unsigned long long sk_len,
 
 #define NGCC_KEX_MIN_PASSES 2ULL
 #define NGCC_KEX_MAX_PASSES 100ULL
+#define NGCC_KEX_PASS_CONTINUE 0
+#define NGCC_KEX_PASS_FINISHED 1
 
 typedef struct {
     int (*CryptHash)(int digest_len_bits,

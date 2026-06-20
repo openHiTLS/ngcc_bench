@@ -310,8 +310,6 @@ int write_json_report(const cli_options_t *opts,
     jw_key_double(&w, L(lang, "吞吐量变异系数(%)", "throughput_cv_percent"), opts->stability_thresholds.stable_throughput_cv_percent);
     jw_key_double(&w, L(lang, "CPU周期变异系数(%)", "cycles_cv_percent"), opts->stability_thresholds.stable_cycles_cv_percent);
     jw_key_double(&w, L(lang, "耗时变异系数(%)", "time_cv_percent"), opts->stability_thresholds.stable_time_cv_percent);
-    jw_key_double(&w, L(lang, "堆内存增长阈值(%)", "stable_heap_growth_percent"), opts->stability_thresholds.stable_heap_growth_percent);
-    jw_key_llu(&w, L(lang, "堆内存增长绝对阈值(字节)", "stable_heap_growth_abs_bytes"), (unsigned long long) opts->stability_thresholds.stable_heap_growth_abs_bytes);
     jw_key_double(&w, L(lang, "物理内存增长阈值(%)", "stable_rss_growth_percent"), opts->stability_thresholds.stable_rss_growth_percent);
     jw_key_llu(&w, L(lang, "物理内存增长绝对阈值(字节)", "stable_rss_growth_abs_bytes"), (unsigned long long) opts->stability_thresholds.stable_rss_growth_abs_bytes);
     jw_key_double(&w, L(lang, "错误率(%)", "error_rate_percent"), opts->stability_thresholds.stable_error_rate_percent);
@@ -425,11 +423,7 @@ int write_json_report(const cli_options_t *opts,
             jw_key_double(&w, L(lang, "单次耗时变异系数(%)", "time_ms_cv_percent"), test->stability.time_cv_percent);
             jw_key_double(&w, L(lang, "单次耗时最小值(毫秒)", "time_min_ms"), test->stability.time_min_ms);
             jw_key_double(&w, L(lang, "单次耗时最大值(毫秒)", "time_max_ms"), test->stability.time_max_ms);
-            jw_key_llu(&w, L(lang, "堆内存起始(字节)", "heap_start_bytes"), (unsigned long long) test->stability.heap_start_bytes);
-            jw_key_llu(&w, L(lang, "堆内存结束(字节)", "heap_end_bytes"), (unsigned long long) test->stability.heap_end_bytes);
-            jw_key_llu(&w, L(lang, "堆内存增长(字节)", "heap_growth_abs_bytes"), (unsigned long long) (test->stability.heap_end_bytes > test->stability.heap_start_bytes ? test->stability.heap_end_bytes - test->stability.heap_start_bytes : test->stability.heap_start_bytes - test->stability.heap_end_bytes));
-            jw_key_double(&w, L(lang, "堆内存增长(%)", "heap_growth_percent"), test->stability.heap_growth_percent);
-            jw_key_llu(&w, L(lang, "物理内存增长(字节)", "rss_growth_abs_bytes"), (unsigned long long) (test->stability.rss_end_bytes > test->stability.rss_start_bytes ? test->stability.rss_end_bytes - test->stability.rss_start_bytes : test->stability.rss_start_bytes - test->stability.rss_end_bytes));
+            jw_key_llu(&w, L(lang, "物理内存增长(字节)", "rss_growth_abs_bytes"), (unsigned long long) test->stability.rss_growth_abs_bytes);
             jw_key_double(&w, L(lang, "物理内存增长(%)", "rss_growth_percent"), test->stability.rss_growth_percent);
             jw_key_llu(&w, L(lang, "总执行次数(次)", "total_executions"), test->stability.total_executions);
             jw_key_llu(&w, L(lang, "错误次数(次)", "error_count"), test->stability.error_count);

@@ -799,7 +799,7 @@ static int test_kex_pass1_bad_msg_len(unsigned char *sk, unsigned long long sk_l
         return -1;
     }
     *m_out_len = TEST_KEX_CAP + 1ULL;
-    return 0;
+    return NGCC_KEX_PASS_CONTINUE;
 }
 
 static int test_kex_pass2_valid(unsigned char *sk, unsigned long long sk_len,
@@ -817,7 +817,7 @@ static int test_kex_pass2_valid(unsigned char *sk, unsigned long long sk_len,
     memset(m_out, 0xD2, (size_t) TEST_KEX_CAP);
     *st_len = TEST_KEX_CAP;
     *m_out_len = TEST_KEX_CAP;
-    return 0;
+    return NGCC_KEX_PASS_FINISHED;
 }
 
 static int test_kex_pass2_bad_msg_len(unsigned char *sk, unsigned long long sk_len,
@@ -825,11 +825,33 @@ static int test_kex_pass2_bad_msg_len(unsigned char *sk, unsigned long long sk_l
                                       unsigned char *m_in, unsigned long long m_in_len,
                                       unsigned char *st, unsigned long long *st_len,
                                       unsigned char *m_out, unsigned long long *m_out_len) {
-    if (test_kex_pass2_valid(sk, sk_len, pk, pk_len, m_in, m_in_len, st, st_len, m_out, m_out_len) != 0) {
+    if (test_kex_pass2_valid(sk, sk_len, pk, pk_len, m_in, m_in_len, st, st_len, m_out, m_out_len) != NGCC_KEX_PASS_FINISHED) {
         return -1;
     }
     *m_out_len = TEST_KEX_CAP + 1ULL;
-    return 0;
+    return NGCC_KEX_PASS_FINISHED;
+}
+
+static int test_kex_pass2_never_finishes(unsigned char *sk, unsigned long long sk_len,
+                                         unsigned char *pk, unsigned long long pk_len,
+                                         unsigned char *m_in, unsigned long long m_in_len,
+                                         unsigned char *st, unsigned long long *st_len,
+                                         unsigned char *m_out, unsigned long long *m_out_len) {
+    if (test_kex_pass2_valid(sk, sk_len, pk, pk_len, m_in, m_in_len, st, st_len, m_out, m_out_len) != NGCC_KEX_PASS_FINISHED) {
+        return -1;
+    }
+    return NGCC_KEX_PASS_CONTINUE;
+}
+
+static int test_kex_pass2_invalid_status(unsigned char *sk, unsigned long long sk_len,
+                                         unsigned char *pk, unsigned long long pk_len,
+                                         unsigned char *m_in, unsigned long long m_in_len,
+                                         unsigned char *st, unsigned long long *st_len,
+                                         unsigned char *m_out, unsigned long long *m_out_len) {
+    if (test_kex_pass2_valid(sk, sk_len, pk, pk_len, m_in, m_in_len, st, st_len, m_out, m_out_len) != NGCC_KEX_PASS_FINISHED) {
+        return -1;
+    }
+    return 2;
 }
 
 static int test_kex_derive_ss_a_no_write(unsigned char *ska, unsigned long long ska_len_bytes,
@@ -894,6 +916,14 @@ static kex_pass_fn_t test_kex_bad_pass_fns[] = {
     test_kex_pass2_bad_msg_len
 };
 
+static kex_pass_fn_t test_kex_unfinished_pass_fns[] = {
+    test_kex_pass2_never_finishes
+};
+
+static kex_pass_fn_t test_kex_invalid_status_pass_fns[] = {
+    test_kex_pass2_invalid_status
+};
+
 static void init_test_kex_no_write_api(ngcc_api_t *api) {
     memset(api, 0, sizeof(*api));
     api->kex_get_passes_num = test_kex_get_passes_num;
@@ -936,6 +966,24 @@ static void test_kex_correctness_rejects_one_pass(void) {
     TEST_ASSERT_INT_EQ(ngcc_kex_correctness(&api), -1);
 }
 
+static void test_kex_correctness_rejects_invalid_pass_status(void) {
+    ngcc_api_t api;
+
+    init_test_kex_no_write_api(&api);
+    api.kex_pass_fns = test_kex_invalid_status_pass_fns;
+
+    TEST_ASSERT_INT_EQ(ngcc_kex_correctness(&api), -1);
+}
+
+static void test_kex_correctness_rejects_unfinished_exchange(void) {
+    ngcc_api_t api;
+
+    init_test_kex_no_write_api(&api);
+    api.kex_pass_fns = test_kex_unfinished_pass_fns;
+
+    TEST_ASSERT_INT_EQ(ngcc_kex_correctness(&api), -1);
+}
+
 static void test_kex_derive_performance_rejects_one_pass(void) {
     ngcc_api_t api;
     ngcc_perf_config_t cfg = test_kex_perf_config();
@@ -946,6 +994,34 @@ static void test_kex_derive_performance_rejects_one_pass(void) {
     memset(&out_a, 0, sizeof(out_a));
     memset(&out_b, 0, sizeof(out_b));
     api.kex_passes_num = NGCC_KEX_MIN_PASSES - 1ULL;
+
+    TEST_ASSERT_INT_EQ(ngcc_kex_derive_ss_performance(&api, &cfg, &out_a, &out_b), -1);
+}
+
+static void test_kex_derive_performance_rejects_invalid_pass_status(void) {
+    ngcc_api_t api;
+    ngcc_perf_config_t cfg = test_kex_perf_config();
+    ngcc_perf_result_t out_a;
+    ngcc_perf_result_t out_b;
+
+    memset(&out_a, 0, sizeof(out_a));
+    memset(&out_b, 0, sizeof(out_b));
+    init_test_kex_no_write_api(&api);
+    api.kex_pass_fns = test_kex_invalid_status_pass_fns;
+
+    TEST_ASSERT_INT_EQ(ngcc_kex_derive_ss_performance(&api, &cfg, &out_a, &out_b), -1);
+}
+
+static void test_kex_derive_performance_rejects_unfinished_exchange(void) {
+    ngcc_api_t api;
+    ngcc_perf_config_t cfg = test_kex_perf_config();
+    ngcc_perf_result_t out_a;
+    ngcc_perf_result_t out_b;
+
+    memset(&out_a, 0, sizeof(out_a));
+    memset(&out_b, 0, sizeof(out_b));
+    init_test_kex_no_write_api(&api);
+    api.kex_pass_fns = test_kex_unfinished_pass_fns;
 
     TEST_ASSERT_INT_EQ(ngcc_kex_derive_ss_performance(&api, &cfg, &out_a, &out_b), -1);
 }
@@ -1008,6 +1084,56 @@ static void test_kex_derive_performance_rejects_bad_derive_length(void) {
 
 /* ── stability thresholds defaults tests ──────────────────────── */
 
+static ngcc_stability_thresholds_t test_rss_thresholds(void) {
+    ngcc_stability_thresholds_t thresholds;
+    ngcc_stability_thresholds_set_defaults(&thresholds);
+    thresholds.stable_rss_growth_percent = 1.0;
+    thresholds.stable_rss_growth_abs_bytes = 100U;
+    return thresholds;
+}
+
+static void test_rss_stability_allows_small_growth(void) {
+    ngcc_stability_thresholds_t thresholds = test_rss_thresholds();
+    ngcc_stability_result_t result;
+
+    memset(&result, 0, sizeof(result));
+    TEST_ASSERT_INT_EQ(ngcc_evaluate_rss_stability(1000U, 1005U, &thresholds, &result), 0);
+    TEST_ASSERT(result.rss_growth_abs_bytes == 5U);
+    TEST_ASSERT_DOUBLE_NEAR(result.rss_growth_percent, 0.5, 1e-9);
+    TEST_ASSERT(result.memory_stable);
+}
+
+static void test_rss_stability_rejects_large_growth(void) {
+    ngcc_stability_thresholds_t thresholds = test_rss_thresholds();
+    ngcc_stability_result_t result;
+
+    memset(&result, 0, sizeof(result));
+    TEST_ASSERT_INT_EQ(ngcc_evaluate_rss_stability(1000U, 1200U, &thresholds, &result), 0);
+    TEST_ASSERT(result.rss_growth_abs_bytes == 200U);
+    TEST_ASSERT_DOUBLE_NEAR(result.rss_growth_percent, 20.0, 1e-9);
+    TEST_ASSERT(!result.memory_stable);
+}
+
+static void test_rss_stability_treats_decrease_as_zero_growth(void) {
+    ngcc_stability_thresholds_t thresholds = test_rss_thresholds();
+    ngcc_stability_result_t result;
+
+    memset(&result, 0, sizeof(result));
+    TEST_ASSERT_INT_EQ(ngcc_evaluate_rss_stability(2000U, 1000U, &thresholds, &result), 0);
+    TEST_ASSERT(result.rss_growth_abs_bytes == 0U);
+    TEST_ASSERT(result.rss_growth_percent == 0.0);
+    TEST_ASSERT(result.memory_stable);
+}
+
+static void test_rss_stability_rejects_unavailable_measurement(void) {
+    ngcc_stability_thresholds_t thresholds = test_rss_thresholds();
+    ngcc_stability_result_t result;
+
+    memset(&result, 0, sizeof(result));
+    TEST_ASSERT_INT_EQ(ngcc_evaluate_rss_stability(0U, 0U, &thresholds, &result), 0);
+    TEST_ASSERT(!result.memory_stable);
+}
+
 static void test_stability_thresholds_defaults(void) {
     ngcc_stability_thresholds_t t;
     memset(&t, 0, sizeof(t));
@@ -1016,8 +1142,6 @@ static void test_stability_thresholds_defaults(void) {
     TEST_ASSERT(t.stable_throughput_cv_percent > 0.0);
     TEST_ASSERT(t.stable_cycles_cv_percent > 0.0);
     TEST_ASSERT(t.stable_time_cv_percent > 0.0);
-    TEST_ASSERT(t.stable_heap_growth_percent > 0.0);
-    TEST_ASSERT(t.stable_heap_growth_abs_bytes > 0);
     TEST_ASSERT(t.stable_rss_growth_percent > 0.0);
     TEST_ASSERT(t.stable_rss_growth_abs_bytes > 0);
     TEST_ASSERT(t.stable_error_rate_percent >= 0.0);
@@ -1095,6 +1219,8 @@ static void test_write_json_report_basic(void) {
     TEST_ASSERT(strstr(json_data, "\"schema_version\": 4") != NULL);
     TEST_ASSERT(strstr(json_data, "\"library\": \"/tmp/mock_lib.so\"") != NULL);
     TEST_ASSERT(strstr(json_data, "\"stability\": \"UNSTABLE\"") != NULL);
+    TEST_ASSERT(strstr(json_data, "\"rss_growth_percent\"") != NULL);
+    TEST_ASSERT(strstr(json_data, "\"heap_growth_percent\"") == NULL);
     TEST_ASSERT(strstr(json_data, "\"overall\"") != NULL);
     free(json_data);
     json_data = NULL;
@@ -1158,8 +1284,8 @@ static void test_run_stability_single_success(void) {
     ngcc_stability_thresholds_set_defaults(&thresholds);
     thresholds.stable_throughput_cv_percent = 100.0;
     thresholds.stable_time_cv_percent = 100.0;
-    thresholds.stable_heap_growth_percent = 100.0;
     thresholds.stable_rss_growth_percent = 100.0;
+    thresholds.stable_rss_growth_abs_bytes = UINT64_MAX;
     TEST_ASSERT_INT_EQ(ngcc_run_stability(&api,
                                           stability_stub_success,
                                           stability_stub_bytes,
@@ -1176,7 +1302,14 @@ static void test_run_stability_single_success(void) {
     TEST_ASSERT(result.total_executions == 1);
     TEST_ASSERT(result.error_count == 0);
     TEST_ASSERT_DOUBLE_NEAR(result.bytes_per_case, 64.0, 1e-9);
-    TEST_ASSERT(strcmp(result.status, "STABLE") == 0);
+    if (result.rss_start_bytes == 0U || result.rss_end_bytes == 0U) {
+        TEST_ASSERT(!result.memory_stable);
+        TEST_ASSERT(strcmp(result.status, "UNSTABLE") == 0);
+        TEST_ASSERT(strstr(result.failure_reasons, "rss measurement unavailable;") != NULL);
+    } else {
+        TEST_ASSERT(result.memory_stable);
+        TEST_ASSERT(strcmp(result.status, "STABLE") == 0);
+    }
 }
 
 static void test_run_stability_single_failure(void) {
@@ -1261,7 +1394,11 @@ int main(void) {
     RUN_TEST(test_kem_correctness_rejects_no_write_shared_secret);
     RUN_TEST(test_kex_correctness_rejects_no_write_shared_secret);
     RUN_TEST(test_kex_correctness_rejects_one_pass);
+    RUN_TEST(test_kex_correctness_rejects_invalid_pass_status);
+    RUN_TEST(test_kex_correctness_rejects_unfinished_exchange);
     RUN_TEST(test_kex_derive_performance_rejects_one_pass);
+    RUN_TEST(test_kex_derive_performance_rejects_invalid_pass_status);
+    RUN_TEST(test_kex_derive_performance_rejects_unfinished_exchange);
     RUN_TEST(test_kex_derive_performance_rejects_bad_init_length);
     RUN_TEST(test_kex_derive_performance_rejects_bad_pass1_length);
     RUN_TEST(test_kex_derive_performance_rejects_bad_pass2_length);
@@ -1275,6 +1412,10 @@ int main(void) {
     RUN_TEST(test_kem_decap_performance_rejects_bad_decap_length);
 
     /* stability thresholds defaults */
+    RUN_TEST(test_rss_stability_allows_small_growth);
+    RUN_TEST(test_rss_stability_rejects_large_growth);
+    RUN_TEST(test_rss_stability_treats_decrease_as_zero_growth);
+    RUN_TEST(test_rss_stability_rejects_unavailable_measurement);
     RUN_TEST(test_stability_thresholds_defaults);
 
     /* json_report */

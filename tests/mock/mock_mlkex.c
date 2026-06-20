@@ -80,7 +80,7 @@ int kex_generate_pass3_msg_a(unsigned char *ska, unsigned long long ska_len_byte
     *sta_len_bytes = 1;
     m3[0] = 0x33;
     *m3_len_bytes = 1;
-    return 0;
+    return 1;
 }
 
 int kex_derive_ss_a(unsigned char *ska, unsigned long long ska_len_bytes,

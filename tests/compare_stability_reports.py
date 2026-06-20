@@ -100,13 +100,13 @@ def main():
     p.add_argument("--allow-cv-regress-ratio", type=float, default=0.20,
                    help="Allowed relative regression ratio for CV metrics (default 0.20 = +20%%)")
     p.add_argument("--allow-throughput-mean-regress-ratio", type=float, default=0.10,
-                   help="Allowed relative regression for throughput_mean_ops decrease (default 0.10 = -10%%)")
+                   help="Allowed relative regression for throughput decrease (ops/s or MB/s, default 0.10 = -10%%)")
     p.add_argument("--allow-time-mean-regress-ratio", type=float, default=0.10,
                    help="Allowed relative regression for time_mean_ms increase (default 0.10 = +10%%)")
     p.add_argument("--allow-cycles-mean-regress-ratio", type=float, default=0.10,
                    help="Allowed relative regression for cycles_mean increase (default 0.10 = +10%%)")
     p.add_argument("--allow-memory-growth-abs", type=float, default=1.0,
-                   help="Allowed absolute regression for heap_growth_percent (default +1.0)")
+                   help="Allowed absolute regression for rss_growth_percent (default +1.0)")
     p.add_argument("--allow-error-rate-abs", type=float, default=0.0,
                    help="Allowed absolute regression for error_rate_percent (default +0.0)")
     args = p.parse_args()
@@ -117,6 +117,12 @@ def main():
     ok = True
     algos = ("hash", "sig", "kem", "kex")
     cv_keys = ("throughput_cv_percent", "time_cv_percent", "cycles_cv_percent")
+    throughput_keys = {
+        "hash": "throughput_mean_mb_per_sec",
+        "sig": "throughput_mean_ops",
+        "kem": "throughput_mean_ops",
+        "kex": "throughput_mean_ops",
+    }
 
     for algo in algos:
         base_status = get_status(base, algo)
@@ -134,10 +140,11 @@ def main():
                 continue
             ok = check_higher_is_worse(ok, algo, k, b, c, args.allow_cv_regress_ratio)
 
-        b_thr = get_metric(base, algo, "throughput_mean_ops")
-        c_thr = get_metric(cur, algo, "throughput_mean_ops")
+        thr_key = throughput_keys[algo]
+        b_thr = get_metric(base, algo, thr_key)
+        c_thr = get_metric(cur, algo, thr_key)
         if b_thr is not None and c_thr is not None and b_thr > 0.0:
-            ok = check_lower_is_worse(ok, algo, "throughput_mean_ops", b_thr, c_thr,
+            ok = check_lower_is_worse(ok, algo, thr_key, b_thr, c_thr,
                                       args.allow_throughput_mean_regress_ratio)
 
         b_time = get_metric(base, algo, "time_mean_ms")
@@ -151,18 +158,6 @@ def main():
         if b_cycles is not None and c_cycles is not None and b_cycles > 0.0:
             ok = check_higher_is_worse(ok, algo, "cycles_mean", b_cycles, c_cycles,
                                        args.allow_cycles_mean_regress_ratio)
-
-        b_heap = get_metric(base, algo, "heap_growth_percent")
-        c_heap = get_metric(cur, algo, "heap_growth_percent")
-        if b_heap is not None and c_heap is not None:
-            if c_heap > b_heap + args.allow_memory_growth_abs:
-                ok = fail(f"{algo}.heap_growth_percent: {c_heap:.6f} > {b_heap + args.allow_memory_growth_abs:.6f}") and ok
-
-        b_heap_abs = get_metric(base, algo, "heap_growth_abs_bytes")
-        c_heap_abs = get_metric(cur, algo, "heap_growth_abs_bytes")
-        if b_heap_abs is not None and c_heap_abs is not None:
-            if c_heap_abs > b_heap_abs + args.allow_memory_growth_abs * 1024:
-                ok = fail(f"{algo}.heap_growth_abs_bytes: {c_heap_abs} > {b_heap_abs + int(args.allow_memory_growth_abs * 1024)}") and ok
 
         b_rss = get_metric(base, algo, "rss_growth_percent")
         c_rss = get_metric(cur, algo, "rss_growth_percent")

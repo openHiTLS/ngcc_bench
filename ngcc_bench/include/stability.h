@@ -53,12 +53,9 @@ typedef struct {
     double time_min_ms;
     double time_max_ms;
 
-    uint64_t heap_start_bytes;
-    uint64_t heap_end_bytes;
-    double heap_growth_percent;
-
     uint64_t rss_start_bytes;
     uint64_t rss_end_bytes;
+    uint64_t rss_growth_abs_bytes;
     double rss_growth_percent;
 
     unsigned long long total_executions;
@@ -77,8 +74,6 @@ typedef struct {
     double stable_throughput_cv_percent;
     double stable_cycles_cv_percent;
     double stable_time_cv_percent;
-    double stable_heap_growth_percent;
-    uint64_t stable_heap_growth_abs_bytes;
     double stable_rss_growth_percent;
     uint64_t stable_rss_growth_abs_bytes;
     double stable_error_rate_percent;
@@ -92,6 +87,11 @@ typedef unsigned long long (*ngcc_bytes_per_case_fn)(const ngcc_api_t *api,
                                                      size_t msg_len);
 
 void ngcc_stability_thresholds_set_defaults(ngcc_stability_thresholds_t *out_thresholds);
+
+int ngcc_evaluate_rss_stability(uint64_t rss_start,
+                                uint64_t rss_end,
+                                const ngcc_stability_thresholds_t *thresholds,
+                                ngcc_stability_result_t *out_result);
 
 int ngcc_run_stability(const ngcc_api_t *api,
                        ngcc_correctness_dispatch_fn correctness_fn,

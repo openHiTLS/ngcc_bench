@@ -324,7 +324,7 @@ int kex_generate_pass3_msg_a(unsigned char *ska, unsigned long long ska_len_byte
     (void)ska_len_bytes; (void)pkb_len_bytes; (void)m2_len_bytes; (void)sta;
     for (i = 0; i < 32; ++i) m3[i] = ska[i] ^ pkb[i] ^ m2[i];
     *sta_len_bytes = 64; *m3_len_bytes = 32;
-    return 0;
+    return 1;
 }
 
 int kex_derive_ss_a(unsigned char *ska, unsigned long long ska_len_bytes,
