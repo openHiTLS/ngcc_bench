@@ -9,13 +9,6 @@
 #include <unistd.h>
 #endif
 
-#if defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 33))
-#include <malloc.h>
-#define HAVE_MALLINFO2 1
-#else
-#define HAVE_MALLINFO2 0
-#endif
-
 static uint64_t read_proc_status_kb_value(const char *key) {
 #ifdef __linux__
     FILE *fp;
@@ -100,13 +93,4 @@ uint64_t ngcc_mem_peak_rss_bytes(void) {
 
 uint64_t ngcc_mem_vm_peak_bytes(void) {
     return read_proc_status_kb_value("VmPeak:");
-}
-
-uint64_t ngcc_mem_heap_bytes(void) {
-#if HAVE_MALLINFO2
-    struct mallinfo2 mi = mallinfo2();
-    return (uint64_t) mi.uordblks;
-#else
-    return 0;
-#endif
 }

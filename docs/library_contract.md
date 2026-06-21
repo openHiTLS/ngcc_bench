@@ -91,7 +91,8 @@ int kex_derive_ss_b(unsigned char *skb, unsigned long long skb_len_bytes,
 
 ## 5. 行为约定
 
-- 所有测试路径将“`0` 视为成功，非 0 视为失败”。
+- 除 KEX pass 函数外，所有测试路径将“`0` 视为成功，非 0 视为失败”。
+- KEX pass 函数使用三态返回值：`0` 表示交换尚未完成、应继续下一 pass；`1` 表示交换已完成；负数表示错误。其他正数返回值无效。
 - `*_get_*_len_bytes()` 返回值必须大于 0，且不超过 `64 MiB`（框架上限检查）。
 - Hash `msg_len` 上限为 `16 MiB`。
 - SIG/KEM/KEX 的长度缓冲上限检查为 `64 MiB`。

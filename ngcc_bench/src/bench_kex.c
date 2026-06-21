@@ -20,6 +20,10 @@ static int kex_is_valid_output_len(unsigned long long len, unsigned long long ca
     return len != 0 && len <= cap;
 }
 
+static int kex_is_valid_pass_status(int rc) {
+    return rc == NGCC_KEX_PASS_CONTINUE || rc == NGCC_KEX_PASS_FINISHED;
+}
+
 typedef int (*kex_derive_fn_t)(unsigned char *sk,
                                unsigned long long sk_len,
                                unsigned char *pk,
@@ -183,6 +187,13 @@ static int kex_run_once(const ngcc_api_t *api,
         ngcc_log_error("[kex] pass1 failed: rc=%d", rc);
         return -1;
     }
+    if (!kex_is_valid_pass_status(rc)) {
+        ngcc_log_error("[kex] pass1 returned invalid status: rc=%d expected=%d|%d",
+                       rc,
+                       NGCC_KEX_PASS_CONTINUE,
+                       NGCC_KEX_PASS_FINISHED);
+        return -1;
+    }
     if (!kex_is_valid_output_len(m_cur_len, msg_cap) ||
         !kex_is_valid_output_len(sta_len, sta_cap)) {
         ngcc_log_error("[kex] pass1 returned invalid lengths: msg_len=%llu msg_cap=%llu sta_len=%llu sta_cap=%llu",
@@ -196,7 +207,7 @@ static int kex_run_once(const ngcc_api_t *api,
     ma_len = m_cur_len;
 
     /* Pass 2..N: alternate A/B sides */
-    for (p = 2; p <= passes && rc == 0; ++p) {
+    for (p = 2; p <= passes && rc == NGCC_KEX_PASS_CONTINUE; ++p) {
         kex_pass_fn_t fn = api->kex_pass_fns[p - 2];
         m_prev = m_cur;
         m_prev_len = m_cur_len;
@@ -210,6 +221,14 @@ static int kex_run_once(const ngcc_api_t *api,
                     stb, &stb_len, m_cur, &m_cur_len);
             if (rc < 0) {
                 ngcc_log_error("[kex] pass%llu failed on B side: rc=%d prev_msg_len=%llu", p, rc, m_prev_len);
+                return -1;
+            }
+            if (!kex_is_valid_pass_status(rc)) {
+                ngcc_log_error("[kex] pass%llu returned invalid B-side status: rc=%d expected=%d|%d",
+                               p,
+                               rc,
+                               NGCC_KEX_PASS_CONTINUE,
+                               NGCC_KEX_PASS_FINISHED);
                 return -1;
             }
             if (!kex_is_valid_output_len(m_cur_len, msg_cap) ||
@@ -232,6 +251,14 @@ static int kex_run_once(const ngcc_api_t *api,
                 ngcc_log_error("[kex] pass%llu failed on A side: rc=%d prev_msg_len=%llu", p, rc, m_prev_len);
                 return -1;
             }
+            if (!kex_is_valid_pass_status(rc)) {
+                ngcc_log_error("[kex] pass%llu returned invalid A-side status: rc=%d expected=%d|%d",
+                               p,
+                               rc,
+                               NGCC_KEX_PASS_CONTINUE,
+                               NGCC_KEX_PASS_FINISHED);
+                return -1;
+            }
             if (!kex_is_valid_output_len(m_cur_len, msg_cap) ||
                 !kex_is_valid_output_len(sta_len, sta_cap)) {
                 ngcc_log_error("[kex] pass%llu returned invalid A-side lengths: msg_len=%llu msg_cap=%llu sta_len=%llu sta_cap=%llu",
@@ -245,6 +272,13 @@ static int kex_run_once(const ngcc_api_t *api,
             ma = m_cur;
             ma_len = m_cur_len;
         }
+    }
+
+    if (rc != NGCC_KEX_PASS_FINISHED) {
+        ngcc_log_error("[kex] key exchange did not finish within advertised passes: passes=%llu final_rc=%d",
+                       passes,
+                       rc);
+        return -1;
     }
 
     if (ma == NULL || mb == NULL ||
@@ -1047,6 +1081,13 @@ int ngcc_kex_derive_ss_performance(const ngcc_api_t *api,
             ngcc_log_error("[kex][performance] setup pass1 failed: rc=%d", pass_rc);
             goto cleanup;
         }
+        if (!kex_is_valid_pass_status(pass_rc)) {
+            ngcc_log_error("[kex][performance] setup pass1 returned invalid status: rc=%d expected=%d|%d",
+                           pass_rc,
+                           NGCC_KEX_PASS_CONTINUE,
+                           NGCC_KEX_PASS_FINISHED);
+            goto cleanup;
+        }
         if (!kex_is_valid_output_len(m_cur_len, msg_cap) ||
             !kex_is_valid_output_len(sta_len, sta_cap)) {
             ngcc_log_error("[kex][performance] setup pass1 returned invalid lengths: msg_len=%llu msg_cap=%llu sta_len=%llu sta_cap=%llu",
@@ -1058,7 +1099,7 @@ int ngcc_kex_derive_ss_performance(const ngcc_api_t *api,
         }
         ma = m_cur; ma_len = m_cur_len;
 
-        for (p = 2; p <= passes && pass_rc == 0; ++p) {
+        for (p = 2; p <= passes && pass_rc == NGCC_KEX_PASS_CONTINUE; ++p) {
             kex_pass_fn_t fn = api->kex_pass_fns[p - 2];
             m_prev = m_cur; m_prev_len = m_cur_len;
             m_cur = (m_prev == msg_buf[0]) ? msg_buf[1] : msg_buf[0];
@@ -1071,6 +1112,14 @@ int ngcc_kex_derive_ss_performance(const ngcc_api_t *api,
                                    p,
                                    pass_rc,
                                    m_prev_len);
+                    goto cleanup;
+                }
+                if (!kex_is_valid_pass_status(pass_rc)) {
+                    ngcc_log_error("[kex][performance] setup pass%llu returned invalid B-side status: rc=%d expected=%d|%d",
+                                   p,
+                                   pass_rc,
+                                   NGCC_KEX_PASS_CONTINUE,
+                                   NGCC_KEX_PASS_FINISHED);
                     goto cleanup;
                 }
                 if (!kex_is_valid_output_len(m_cur_len, msg_cap) ||
@@ -1094,6 +1143,14 @@ int ngcc_kex_derive_ss_performance(const ngcc_api_t *api,
                                    m_prev_len);
                     goto cleanup;
                 }
+                if (!kex_is_valid_pass_status(pass_rc)) {
+                    ngcc_log_error("[kex][performance] setup pass%llu returned invalid A-side status: rc=%d expected=%d|%d",
+                                   p,
+                                   pass_rc,
+                                   NGCC_KEX_PASS_CONTINUE,
+                                   NGCC_KEX_PASS_FINISHED);
+                    goto cleanup;
+                }
                 if (!kex_is_valid_output_len(m_cur_len, msg_cap) ||
                     !kex_is_valid_output_len(sta_len, sta_cap)) {
                     ngcc_log_error("[kex][performance] setup pass%llu returned invalid A-side lengths: msg_len=%llu msg_cap=%llu sta_len=%llu sta_cap=%llu",
@@ -1106,6 +1163,12 @@ int ngcc_kex_derive_ss_performance(const ngcc_api_t *api,
                 }
                 ma = m_cur; ma_len = m_cur_len;
             }
+        }
+        if (pass_rc != NGCC_KEX_PASS_FINISHED) {
+            ngcc_log_error("[kex][performance] setup did not finish within advertised passes: passes=%llu final_rc=%d",
+                           passes,
+                           pass_rc);
+            goto cleanup;
         }
         if (ma == NULL || mb == NULL ||
             !kex_is_valid_output_len(ma_len, msg_cap) ||

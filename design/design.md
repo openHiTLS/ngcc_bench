@@ -4,7 +4,7 @@
 > 本文是“目标设计 + 参考实现草案”的合集，不等同于当前仓库的已实现状态。  
 > 截至 2026-02-14，仓库已实现的是 `ngcc_bench` 非交互式 CLI 主程序（`ngcc_bench/src`），并已支持：
 > `hash/sig/kem/kex` + `correctness/performance/memory/stability` + 交互式入口（无参数运行）+ 可选 JSON 报告（`--json-out`）。  
-> 另外已支持 `hash/sig/kem/kex` 的 KAT（`--kat`）、性能分布统计（min/mean/median/max/stddev/CV）、稳定性阈值 CLI 可配置（`stable-*`/`warning-*`，JSON `schema_version=4` 记录阈值与原始稳定性等级），以及稳定性窗口采样（`--stability-sample-ms`）；内存测试已收敛为按算法粒度的 `VmSize/VmPeak` 方案；稳定性内存泄漏检测改用 `Heap (mallinfo2) + RSS`，不再使用 `VmSize`。
+> 另外已支持 `hash/sig/kem/kex` 的 KAT（`--kat`）、性能分布统计（min/mean/median/max/stddev/CV）、稳定性阈值 CLI 可配置（`stable-*`/`warning-*`，JSON `schema_version=4` 记录阈值与原始稳定性等级），以及稳定性窗口采样（`--stability-sample-ms`）；内存测试已收敛为按算法粒度的 `VmSize/VmPeak` 方案；稳定性内存增长检测仅使用 RSS，不再使用 Heap 或 VmSize 参与稳定性判定。
 > 详细一致性对照见：`docs/design_alignment.md`。
 
 > [!NOTE]
@@ -839,7 +839,7 @@ parent
 
 - 当前口径是 **虚拟内存空间峰值**，不是 RSS
 - 这样能覆盖代码段、常量、全局变量，以及运行期间出现的堆和栈变化
-- 指标语义和 `stability` 模式保持一致，均以 `VmSize` 作为采样基础
+- 该口径只用于独立的 `memory` 测试；`stability` 模式使用 RSS 检测长时间运行中的驻留内存增长，两者用途和指标口径不同
 
 ---
 
@@ -854,7 +854,7 @@ parent
 > [!IMPORTANT]
 > **与其他测试模块保持一致**：
 > - **计时方案**：复用 `cycle_counter` 周期来源选择，并使用 `clock_gettime(CLOCK_MONOTONIC)` 统计时间；周期不可用时降级为 time-only
-> - **内存监控**：使用 `mallinfo2.uordblks`（堆内存）和 `/proc/self/statm`（RSS），优先堆内存判定
+> - **内存监控**：仅使用 `/proc/self/statm` 的驻留页数计算 RSS
 > - **统计算法**：使用 Welford 在线算法（避免存储所有轮次数据）
 
 | 指标 | 说明 | 判定标准 |
@@ -862,7 +862,7 @@ parent
 | **吞吐量变异系数 (throughput_cv)** | 多轮测试吞吐量的波动程度 | CV < 5% 为稳定 |
 | **CPU周期稳定性 (counts_cv)** | 当前可用周期来源的计数波动；不可用时标记为 unavailable | CV < 5% 为稳定 |
 | **时间稳定性 (time_cv)** | 时间均值的波动程度 | CV < 5% 为稳定 |
-| **内存增长率** | 堆内存 (Heap) 或 RSS 从开始到结束的增长 | 增长 < 1% 且绝对值 < 100KB 为无泄漏 |
+| **RSS 内存增长** | 进程 RSS 从开始到结束的正向增长；内存下降按零增长处理 | 增长率 < 1% 且绝对增长 < 100KB 为稳定 |
 | **错误率** | 长时间运行中的错误发生率 | 0% 为通过 |
 
 ### 6.2 测试配置
@@ -918,19 +918,15 @@ typedef struct {
     double time_stddev_ns;      // 时间标准差 (纳秒)
     double time_cv;             // 时间变异系数
 
-    // 内存统计 (Heap via mallinfo2 + RSS via /proc/self/statm)
-    size_t heap_start_bytes;     // 堆内存初始 (bytes)
-    size_t heap_end_bytes;       // 堆内存结束 (bytes)
-    double heap_growth_percent;  // 堆内存增长率 (%)
-    size_t rss_start_bytes;      // 物理内存初始 (bytes)
-    size_t rss_end_bytes;        // 物理内存结束 (bytes)
-    double rss_growth_percent;   // 物理内存增长率 (%)
+    // 内存统计 (RSS via /proc/self/statm)
+    uint64_t rss_start_bytes;       // 初始 RSS (bytes)
+    uint64_t rss_end_bytes;         // 结束 RSS (bytes)
+    uint64_t rss_growth_abs_bytes;  // RSS 正向绝对增长 (bytes)
+    double rss_growth_percent;      // RSS 正向增长率 (%)
 
     // 阈值配置
-    double stable_heap_growth_percent;      // 堆内存增长率阈值 (%)
-    size_t stable_heap_growth_abs_bytes;    // 堆内存绝对增长阈值 (bytes)
-    double stable_rss_growth_percent;       // 物理内存增长率阈值 (%)
-    size_t stable_rss_growth_abs_bytes;     // 物理内存绝对增长阈值 (bytes)
+    double stable_rss_growth_percent;       // RSS 增长率阈值 (%)
+    uint64_t stable_rss_growth_abs_bytes;   // RSS 绝对增长阈值 (bytes)
 
     // 错误统计
     uint32_t total_executions;  // 总执行次数
@@ -967,19 +963,7 @@ typedef struct {
 #include "welford.h"
 
 /**
- * 读取堆内存使用量 (mallinfo2.uordblks)
- */
-static size_t get_heap_bytes(void) {
-#if defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 33))
-    struct mallinfo2 mi = mallinfo2();
-    return (size_t) mi.uordblks;
-#else
-    return 0;
-#endif
-}
-
-/**
- * 读取物理内存 RSS (from /proc/self/statm)
+ * 读取 RSS (from /proc/self/statm)
  */
 static size_t get_rss_bytes(void) {
     FILE* fp = fopen("/proc/self/statm", "r");
@@ -1020,7 +1004,6 @@ int run_stability_test(AlgorithmContext* ctx,
 
     // 初始化结果
     memset(result, 0, sizeof(StabilityResult));
-    result->heap_start_bytes = get_heap_bytes();
     result->rss_start_bytes = get_rss_bytes();
 
     cycle_counter_t counter;
@@ -1114,17 +1097,14 @@ int run_stability_test(AlgorithmContext* ctx,
                       (result->time_stddev_ns / result->time_mean_ns) : 0;
 
     // 内存统计
-    result->heap_end_bytes = get_heap_bytes();
-    if (result->heap_start_bytes > 0) {
-        result->heap_growth_percent = 100.0 *
-            (double)((long long)result->heap_end_bytes - (long long)result->heap_start_bytes) /
-            result->heap_start_bytes;
-    }
     result->rss_end_bytes = get_rss_bytes();
-    if (result->rss_start_bytes > 0) {
+    result->rss_growth_abs_bytes =
+        (result->rss_end_bytes > result->rss_start_bytes)
+            ? result->rss_end_bytes - result->rss_start_bytes
+            : 0;
+    if (result->rss_start_bytes > 0 && result->rss_end_bytes > 0) {
         result->rss_growth_percent = 100.0 *
-            (double)((long long)result->rss_end_bytes - (long long)result->rss_start_bytes) /
-            result->rss_start_bytes;
+            (double)result->rss_growth_abs_bytes / result->rss_start_bytes;
     }
 
     // 错误率
@@ -1139,11 +1119,9 @@ int run_stability_test(AlgorithmContext* ctx,
          result->time_cv < 0.05);
 
     result->memory_stable =
-        (result->heap_start_bytes > 0)
-            ? (fabs(result->heap_growth_percent) < result->stable_heap_growth_percent &&
-               heap_abs < result->stable_heap_growth_abs_bytes)
-            : (fabs(result->rss_growth_percent) < result->stable_rss_growth_percent &&
-               rss_abs < result->stable_rss_growth_abs_bytes);
+        result->rss_start_bytes > 0 && result->rss_end_bytes > 0 &&
+        result->rss_growth_percent < result->stable_rss_growth_percent &&
+        result->rss_growth_abs_bytes < result->stable_rss_growth_abs_bytes;
 
     result->correctness_stable =
         (result->error_rate == 0);
@@ -1158,7 +1136,7 @@ int run_stability_test(AlgorithmContext* ctx,
         result->is_stable = 1;
         strcpy(result->status, "STABLE");
     } else if (result->throughput_cv < 0.10 &&
-               ((result->heap_start_bytes > 0) ? fabs(result->heap_growth_percent) : fabs(result->rss_growth_percent)) < 5.0 &&
+               result->rss_growth_percent < 5.0 &&
                result->error_rate < 0.01) {
         result->is_stable = 0;
         strcpy(result->status, "WARNING");
@@ -1171,8 +1149,7 @@ int run_stability_test(AlgorithmContext* ctx,
             strcat(result->failure_reasons, temp);
         }
         if (!result->memory_stable) {
-            double mem_growth = (result->heap_start_bytes > 0) ? result->heap_growth_percent : result->rss_growth_percent;
-            snprintf(temp, sizeof(temp), "内存增长(%.2f%%); ", mem_growth);
+            snprintf(temp, sizeof(temp), "RSS增长(%.2f%%); ", result->rss_growth_percent);
             strcat(result->failure_reasons, temp);
         }
         if (!result->correctness_stable) {
@@ -1198,9 +1175,8 @@ int run_stability_test(AlgorithmContext* ctx,
             strcat(result->failure_reasons, temp);
         }
         {
-            double mem_growth = (result->heap_start_bytes > 0) ? result->heap_growth_percent : result->rss_growth_percent;
-            if (fabs(mem_growth) >= 5.0) {
-                snprintf(temp, sizeof(temp), "内存异常增长(%.2f%%); ", mem_growth);
+            if (result->rss_growth_percent >= 5.0) {
+                snprintf(temp, sizeof(temp), "RSS异常增长(%.2f%%); ", result->rss_growth_percent);
                 strcat(result->failure_reasons, temp);
             }
         }
@@ -1355,9 +1331,9 @@ int run_stability_test(AlgorithmContext* ctx,
   └────────────────────────────────────────────┘
   
   ┌─ 内存稳定性 ───────────────────────────────┐
-  │  初始内存:    12,582,912 bytes (12.0 MB)   │
-  │  结束内存:    12,648,448 bytes (12.1 MB)   │
-  │  增长率:      0.52%           ✓ (<1%)      │
+  │  初始 RSS:    12,582,912 bytes (12.0 MB)   │
+  │  结束 RSS:    12,648,448 bytes (12.1 MB)   │
+  │  RSS 增长:    65,536 bytes / 0.52%         │
   └────────────────────────────────────────────┘
   
   ┌─ 错误统计 ─────────────────────────────────┐
@@ -1391,9 +1367,11 @@ int run_stability_test(AlgorithmContext* ctx,
     "cv": 0.0227
   },
   "memory": {
-    "start_bytes": 12582912,
-    "end_bytes": 12648448,
-    "growth_rate": 0.0052
+    "rss_start_bytes": 12582912,
+    "rss_end_bytes": 12648448,
+    "rss_growth_abs_bytes": 65536,
+    "rss_growth_percent": 0.52,
+    "memory_stable": true
   },
   "errors": {
     "count": 0,
@@ -1481,12 +1459,10 @@ void output_stability_result(const StabilityResult* r,
         printf("  └────────────────────────────────────────────┘\n\n");
         
         printf("  ┌─ 内存稳定性 ───────────────────────────────┐\n");
-        {
-            double mem_growth = (r->heap_start_bytes > 0) ? r->heap_growth_percent : r->rss_growth_percent;
-            const char *mem_label = (r->heap_start_bytes > 0) ? "堆" : "物理";
-            printf("  │  %s内存增长率: %.2f%%           %s      │\n",
-                   mem_label, mem_growth, mem_growth < 1.0 ? "✓" : "✗");
-        }
+        printf("  │  RSS 增长: %zu bytes / %.2f%%   %s      │\n",
+               r->rss_growth_abs_bytes,
+               r->rss_growth_percent,
+               r->memory_stable ? "✓" : "✗");
         printf("  └────────────────────────────────────────────┘\n\n");
         
         printf("  综合评定:       %s %s\n", 
@@ -1518,12 +1494,11 @@ void output_stability_result(const StabilityResult* r,
             fprintf(fp, "    \"cv\": %.4f\n", r->cycles_cv);
             fprintf(fp, "  },\n");
             fprintf(fp, "  \"memory\": {\n");
-            fprintf(fp, "    \"heap_start_bytes\": %zu,\n", r->heap_start_bytes);
-            fprintf(fp, "    \"heap_end_bytes\": %zu,\n", r->heap_end_bytes);
-            fprintf(fp, "    \"heap_growth_percent\": %.4f,\n", r->heap_growth_percent);
             fprintf(fp, "    \"rss_start_bytes\": %zu,\n", r->rss_start_bytes);
             fprintf(fp, "    \"rss_end_bytes\": %zu,\n", r->rss_end_bytes);
-            fprintf(fp, "    \"rss_growth_percent\": %.4f\n", r->rss_growth_percent);
+            fprintf(fp, "    \"rss_growth_abs_bytes\": %zu,\n", r->rss_growth_abs_bytes);
+            fprintf(fp, "    \"rss_growth_percent\": %.4f,\n", r->rss_growth_percent);
+            fprintf(fp, "    \"memory_stable\": %s\n", r->memory_stable ? "true" : "false");
             fprintf(fp, "  },\n");
             fprintf(fp, "  \"errors\": {\n");
             fprintf(fp, "    \"count\": %u,\n", r->error_count);
@@ -1598,8 +1573,8 @@ void output_stability_result(const StabilityResult* r,
     "status": "STABLE",
     "throughput_cv": 0.023,
     "cycles_cv": 0.0227,
-    "heap_growth_percent": 0.0052,
-    "rss_growth_percent": 0.0031,
+    "rss_growth_abs_bytes": 65536,
+    "rss_growth_percent": 0.52,
     "error_rate": 0.0
   },
   "overall": {
