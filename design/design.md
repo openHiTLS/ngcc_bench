@@ -24,7 +24,7 @@
 | 随机输入需要更可靠来源 | 采纳 | 优先 `getrandom(2)`，回退 `/dev/urandom` |
 | `sig_verify` 返回值语义 | 采纳 | 约定 `0 = success` |
 | Hash 需要显式摘要长度参数 | 采纳 | 增加 `--digest-len-bits` |
-| memory 测试是否 fork 隔离 | 采纳 | 采用 fork 子进程隔离每个算法的内存测量 |
+| memory 测试是否进程隔离 | 采纳 | 每个算法使用 `fork + exec` 的干净 helper 进程测量，并通过固定 FD 加载目标库 |
 | 是否默认引入 JSON/verbose/config file | 有选择采纳 | 当前保留 `--json-out`，其余保持最简 |
 
 ## 1. 概述
@@ -814,10 +814,15 @@ void print_perf_result_console(const PerfResult* r, const char* algo_name) {
 
 ```text
 parent
+  realpath(lib_path)
+  open(resolved_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
   fork()
     child:
+      将库 FD 和结果管道 FD 复制到固定编号并清除 FD_CLOEXEC
+      exec /proc/self/exe --internal-memory-helper ...
+    helper（全新地址空间，未加载过目标库）:
       base_vmsize = read VmSize
-      dlopen(lib.so)
+      dlopen(/proc/self/fd/<library-fd>)
       loaded_vmsize = read VmSize
       run_algorithm()
       vmpeak = read VmPeak
@@ -828,6 +833,10 @@ parent
       read result
       waitpid()
 ```
+
+父进程只解析并打开库路径一次。普通测试和 memory helper 均通过该 FD 对应的
+`/proc/self/fd/<fd>` 加载，因此路径、软链接或目录项在打开后被替换，不会改变实际加载对象。
+`exec` 会清除父进程继承的动态库映射和运行时分配，使 `base_vmsize` 来自未加载目标库的干净地址空间。
 
 ### 5.3 结果归属
 

@@ -20,6 +20,15 @@ typedef struct {
  */
 int ngcc_load_library(const char *lib_path, unsigned int test_mask,
                       ngcc_library_t *out_lib);
+
+/* Linux: resolve the user path once and retain a descriptor for the selected
+ * regular file.  The descriptor is the stable identity used by later loads. */
+int ngcc_open_library_file(const char *lib_path);
+
+/* Linux: load the object referenced by lib_fd through /proc/self/fd without
+ * resolving the original user-controlled path again. */
+int ngcc_load_library_fd(int lib_fd, unsigned int test_mask,
+                         ngcc_library_t *out_lib);
 void ngcc_unload_library(ngcc_library_t *lib);
 
 #endif

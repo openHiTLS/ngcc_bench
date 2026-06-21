@@ -1,9 +1,14 @@
 #include "loader.h"
 
 #include <dlfcn.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 /* TEST_MASK_* constants live in cli_types.h */
 #include "cli_types.h"
@@ -112,8 +117,8 @@ static int load_kex_symbols(void *handle, ngcc_api_t *api) {
 
 /* ── Public API ─────────────────────────────────────────────────── */
 
-int ngcc_load_library(const char *lib_path, unsigned int test_mask,
-                      ngcc_library_t *out_lib) {
+static int load_library_path(const char *lib_path, unsigned int test_mask,
+                             ngcc_library_t *out_lib) {
     void *handle;
     ngcc_api_t *api;
 
@@ -152,6 +157,63 @@ int ngcc_load_library(const char *lib_path, unsigned int test_mask,
     }
 
     return 0;
+}
+
+int ngcc_load_library(const char *lib_path, unsigned int test_mask,
+                      ngcc_library_t *out_lib) {
+    return load_library_path(lib_path, test_mask, out_lib);
+}
+
+int ngcc_open_library_file(const char *lib_path) {
+#ifdef __linux__
+    struct stat st;
+    char resolved[PATH_MAX];
+    int fd;
+
+    if (lib_path == NULL) {
+        return -1;
+    }
+    if (realpath(lib_path, resolved) == NULL) {
+        ngcc_log_error("[loader] failed to resolve library %s: %s", lib_path, strerror(errno));
+        return -1;
+    }
+    fd = open(resolved, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0) {
+        ngcc_log_error("[loader] failed to open library %s: %s", lib_path, strerror(errno));
+        return -1;
+    }
+    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+        ngcc_log_error("[loader] library is not a regular file: %s", lib_path);
+        close(fd);
+        return -1;
+    }
+    return fd;
+#else
+    (void) lib_path;
+    return -1;
+#endif
+}
+
+int ngcc_load_library_fd(int lib_fd, unsigned int test_mask,
+                         ngcc_library_t *out_lib) {
+#ifdef __linux__
+    char fd_path[64];
+    int n;
+
+    if (lib_fd < 0) {
+        return -1;
+    }
+    n = snprintf(fd_path, sizeof(fd_path), "/proc/self/fd/%d", lib_fd);
+    if (n < 0 || (size_t) n >= sizeof(fd_path)) {
+        return -1;
+    }
+    return load_library_path(fd_path, test_mask, out_lib);
+#else
+    (void) lib_fd;
+    (void) test_mask;
+    (void) out_lib;
+    return -1;
+#endif
 }
 
 void ngcc_unload_library(ngcc_library_t *lib) {

@@ -250,6 +250,22 @@ static void test_loader_selected_groups_only_loaded(void) {
     ngcc_unload_library(&lib);
 }
 
+static void test_loader_fixed_fd_selected_symbols(void) {
+#ifdef __linux__
+    ngcc_library_t lib;
+    int fd;
+
+    TEST_ASSERT(NGCC_UNIT_MOCK_HASH_ONLY[0] != '\0');
+    fd = ngcc_open_library_file(NGCC_UNIT_MOCK_HASH_ONLY);
+    TEST_ASSERT(fd >= 0);
+    TEST_ASSERT_INT_EQ(ngcc_load_library_fd(fd, TEST_MASK_HASH, &lib), 0);
+    TEST_ASSERT(lib.handle != NULL);
+    TEST_ASSERT(lib.api.CryptHash != NULL);
+    ngcc_unload_library(&lib);
+    close(fd);
+#endif
+}
+
 /* ── parse_test_mask tests ────────────────────────────────────── */
 
 static void test_parse_test_mask_valid(void) {
@@ -1183,6 +1199,7 @@ static void test_write_json_report_basic(void) {
     }
 
     report.tests[0].selected = 1;
+    report.tests[0].is_hash = 1;
     report.tests[0].correctness_status = STATUS_PASS;
     report.tests[0].performance_status = STATUS_PASS;
     report.tests[0].stability_status = STATUS_PASS;
@@ -1221,6 +1238,8 @@ static void test_write_json_report_basic(void) {
     TEST_ASSERT(strstr(json_data, "\"stability\": \"UNSTABLE\"") != NULL);
     TEST_ASSERT(strstr(json_data, "\"rss_growth_percent\"") != NULL);
     TEST_ASSERT(strstr(json_data, "\"heap_growth_percent\"") == NULL);
+    TEST_ASSERT(strstr(json_data, "\"throughput_mean_mb_per_sec\"") != NULL);
+    TEST_ASSERT(strstr(json_data, "\"throughput_mean_ops\"") == NULL);
     TEST_ASSERT(strstr(json_data, "\"overall\"") != NULL);
     free(json_data);
     json_data = NULL;
@@ -1358,6 +1377,7 @@ int main(void) {
     RUN_TEST(test_loader_hash_only_selected_symbols);
     RUN_TEST(test_loader_hash_only_missing_required_symbols);
     RUN_TEST(test_loader_selected_groups_only_loaded);
+    RUN_TEST(test_loader_fixed_fd_selected_symbols);
 
     /* parse_test_mask */
     RUN_TEST(test_parse_test_mask_valid);

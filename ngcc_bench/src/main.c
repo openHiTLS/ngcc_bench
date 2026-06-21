@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -414,7 +415,6 @@ static int run_performance_for_test(const ngcc_api_t *api,
             report->performance_labels[mi] = label;
             report->performance_labels_en[mi] = label;
             report->performance_count = (int) mi + 1;
-            report->is_hash = 1;
         }
     }
 
@@ -489,6 +489,10 @@ static int run_stability_for_test(const ngcc_api_t *api,
 }
 
 #ifdef __linux__
+#define NGCC_MEMORY_HELPER_ARG "--internal-memory-helper"
+#define NGCC_MEMORY_LIB_FD 198
+#define NGCC_MEMORY_RESULT_FD 199
+
 static uint64_t memory_delta_bytes(uint64_t end, uint64_t start) {
     return (end > start) ? (end - start) : 0U;
 }
@@ -550,10 +554,93 @@ static int read_probe_result(int fd, ngcc_memory_probe_result_t *result) {
 
     return (left == 0U) ? 0 : -1;
 }
+
+static int run_memory_helper_process(int lib_fd,
+                                     int result_fd,
+                                     size_t test_index,
+                                     int digest_len_bits) {
+    ngcc_memory_probe_result_t result;
+    ngcc_library_t lib;
+    uint64_t base_vmsize;
+    uint64_t loaded_vmsize = 0;
+    uint64_t peak_vmsize = 0;
+    int rc = -1;
+
+    memset(&result, 0, sizeof(result));
+    memset(&lib, 0, sizeof(lib));
+    if (test_index >= sizeof(k_tests) / sizeof(k_tests[0])) {
+        return 127;
+    }
+
+    base_vmsize = ngcc_mem_current_vmsize_bytes();
+    if (base_vmsize == 0U) {
+        ngcc_log_error("[memory][%s] failed to read base VmSize before dlopen",
+                       k_tests[test_index].name);
+    } else if (ngcc_load_library_fd(lib_fd, k_tests[test_index].mask, &lib) == 0) {
+        int digest_bits = (k_tests[test_index].kind == NGCC_TEST_HASH) ? digest_len_bits : 0;
+
+        loaded_vmsize = ngcc_mem_current_vmsize_bytes();
+        rc = k_test_dispatch[test_index].correctness_fn(&lib.api, digest_bits, k_msg_lens[0]);
+        peak_vmsize = ngcc_mem_vm_peak_bytes();
+        if (peak_vmsize == 0U) {
+            peak_vmsize = ngcc_mem_current_vmsize_bytes();
+        }
+        if (peak_vmsize < loaded_vmsize) {
+            peak_vmsize = loaded_vmsize;
+        }
+        result.static_memory_bytes = memory_delta_bytes(loaded_vmsize, base_vmsize);
+        result.peak_memory_bytes = memory_delta_bytes(peak_vmsize, base_vmsize);
+        if (result.peak_memory_bytes < result.static_memory_bytes) {
+            result.peak_memory_bytes = result.static_memory_bytes;
+        }
+        ngcc_unload_library(&lib);
+    } else {
+        ngcc_log_error("[memory][%s] failed to load library from fixed fd",
+                       k_tests[test_index].name);
+    }
+
+    result.algorithm_rc = rc;
+    return write_probe_result(result_fd, &result) == 0 ? 0 : 127;
+}
+
+static int parse_internal_int(const char *value, int *out) {
+    char *end = NULL;
+    long parsed;
+
+    errno = 0;
+    parsed = strtol(value, &end, 10);
+    if (errno != 0 || end == value || *end != '\0' || parsed < 0 || parsed > 2147483647L) {
+        return -1;
+    }
+    *out = (int) parsed;
+    return 0;
+}
+
+static int maybe_run_memory_helper(int argc, char **argv, int *out_exit_code) {
+    int lib_fd;
+    int result_fd;
+    int test_index;
+    int digest_len_bits;
+
+    if (argc < 2 || strcmp(argv[1], NGCC_MEMORY_HELPER_ARG) != 0) {
+        return 0;
+    }
+    if (argc != 6 || parse_internal_int(argv[2], &lib_fd) != 0 ||
+        parse_internal_int(argv[3], &result_fd) != 0 ||
+        parse_internal_int(argv[4], &test_index) != 0 ||
+        parse_internal_int(argv[5], &digest_len_bits) != 0) {
+        *out_exit_code = 127;
+        return 1;
+    }
+    *out_exit_code = run_memory_helper_process(lib_fd, result_fd,
+                                                (size_t) test_index,
+                                                digest_len_bits);
+    return 1;
+}
 #endif
 
 static int run_memory_probe_child(const cli_options_t *opts,
-                                  const ngcc_library_t *inherited_lib,
+                                  int lib_fd,
                                   size_t test_index,
                                   ngcc_memory_probe_result_t *out_result) {
 #ifdef __linux__
@@ -577,61 +664,37 @@ static int run_memory_probe_child(const cli_options_t *opts,
     }
 
     if (pid == 0) {
-        ngcc_memory_probe_result_t result;
-        ngcc_library_t lib;
-        uint64_t base_vmsize;
-        uint64_t loaded_vmsize = 0;
-        uint64_t peak_vmsize = 0;
-        uint64_t static_memory_bytes = 0;
-        uint64_t peak_memory_bytes = 0;
-        int rc = -1;
+        char lib_fd_arg[32];
+        char result_fd_arg[32];
+        char test_index_arg[32];
+        char digest_arg[32];
+        char *helper_argv[7];
 
         close(pipefd[0]);
-        memset(&result, 0, sizeof(result));
-        memset(&lib, 0, sizeof(lib));
-
-        if (inherited_lib != NULL && inherited_lib->handle != NULL) {
-            ngcc_library_t inherited_copy = *inherited_lib;
-            ngcc_unload_library(&inherited_copy);
-        }
-
-        base_vmsize = ngcc_mem_current_vmsize_bytes();
-        if (base_vmsize == 0U) {
-            ngcc_log_error("[memory][%s] failed to read base VmSize before dlopen",
-                           k_tests[test_index].name);
-        } else if (ngcc_load_library(opts->lib_path, k_tests[test_index].mask, &lib) == 0) {
-            int digest_bits = (k_tests[test_index].kind == NGCC_TEST_HASH) ? opts->digest_len_bits : 0;
-
-            loaded_vmsize = ngcc_mem_current_vmsize_bytes();
-            rc = k_test_dispatch[test_index].correctness_fn(&lib.api, digest_bits, k_msg_lens[0]);
-            peak_vmsize = ngcc_mem_vm_peak_bytes();
-            if (peak_vmsize == 0U) {
-                peak_vmsize = ngcc_mem_current_vmsize_bytes();
-            }
-            if (peak_vmsize < loaded_vmsize) {
-                peak_vmsize = loaded_vmsize;
-            }
-            static_memory_bytes = memory_delta_bytes(loaded_vmsize, base_vmsize);
-            peak_memory_bytes = memory_delta_bytes(peak_vmsize, base_vmsize);
-            if (peak_memory_bytes < static_memory_bytes) {
-                peak_memory_bytes = static_memory_bytes;
-            }
-            ngcc_unload_library(&lib);
-        } else {
-            ngcc_log_error("[memory][%s] failed to load library for memory probe: lib=%s",
-                           k_tests[test_index].name,
-                           opts->lib_path);
-        }
-
-        result.algorithm_rc = rc;
-        result.static_memory_bytes = static_memory_bytes;
-        result.peak_memory_bytes = peak_memory_bytes;
-        if (write_probe_result(pipefd[1], &result) != 0) {
-            close(pipefd[1]);
+        if (dup2(lib_fd, NGCC_MEMORY_LIB_FD) < 0 ||
+            dup2(pipefd[1], NGCC_MEMORY_RESULT_FD) < 0) {
             _exit(127);
         }
-        close(pipefd[1]);
-        _exit(0);
+        if (fcntl(NGCC_MEMORY_LIB_FD, F_SETFD, 0) < 0 ||
+            fcntl(NGCC_MEMORY_RESULT_FD, F_SETFD, 0) < 0) {
+            _exit(127);
+        }
+        if (pipefd[1] != NGCC_MEMORY_RESULT_FD) {
+            close(pipefd[1]);
+        }
+        snprintf(lib_fd_arg, sizeof(lib_fd_arg), "%d", NGCC_MEMORY_LIB_FD);
+        snprintf(result_fd_arg, sizeof(result_fd_arg), "%d", NGCC_MEMORY_RESULT_FD);
+        snprintf(test_index_arg, sizeof(test_index_arg), "%zu", test_index);
+        snprintf(digest_arg, sizeof(digest_arg), "%d", opts->digest_len_bits);
+        helper_argv[0] = (char *) "ngcc_bench";
+        helper_argv[1] = NGCC_MEMORY_HELPER_ARG;
+        helper_argv[2] = lib_fd_arg;
+        helper_argv[3] = result_fd_arg;
+        helper_argv[4] = test_index_arg;
+        helper_argv[5] = digest_arg;
+        helper_argv[6] = NULL;
+        execv("/proc/self/exe", helper_argv);
+        _exit(127);
     }
 
     close(pipefd[1]);
@@ -645,13 +708,13 @@ static int run_memory_probe_child(const cli_options_t *opts,
     if (waitpid(pid, &status, 0) < 0) {
         return -1;
     }
-    if (!WIFEXITED(status)) {
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
         return -1;
     }
     return 0;
 #else
     (void) opts;
-    (void) inherited_lib;
+    (void) lib_fd;
     (void) test_index;
     (void) out_result;
     return -1;
@@ -660,7 +723,7 @@ static int run_memory_probe_child(const cli_options_t *opts,
 
 static int run_memory_mode(const cli_options_t *opts,
                            run_report_t *report,
-                           const ngcc_library_t *loaded_lib) {
+                           int lib_fd) {
     size_t i;
     int failed = 0;
 
@@ -673,7 +736,7 @@ static int run_memory_mode(const cli_options_t *opts,
         }
 
         memset(&probe, 0, sizeof(probe));
-        probe_rc = run_memory_probe_child(opts, loaded_lib, i, &probe);
+        probe_rc = run_memory_probe_child(opts, lib_fd, i, &probe);
         if (probe_rc != 0) {
             report->tests[i].memory_status = STATUS_FAIL;
             ngcc_log_error("[memory][%s] helper probe failed",
@@ -709,6 +772,13 @@ int main(int argc, char **argv) {
     run_report_t report;
     size_t i;
     int failed = 0;
+    int lib_fd = -1;
+#ifdef __linux__
+    int helper_exit_code;
+    if (maybe_run_memory_helper(argc, argv, &helper_exit_code)) {
+        return helper_exit_code;
+    }
+#endif
     char interactive_lib[NGCC_PATH_BUF_SIZE];
     char interactive_kat[NGCC_PATH_BUF_SIZE];
     char interactive_json[NGCC_PATH_BUF_SIZE];
@@ -721,6 +791,7 @@ int main(int argc, char **argv) {
 
     for (i = 0; i < sizeof(k_tests) / sizeof(k_tests[0]); ++i) {
         report.tests[i].name = k_tests[i].name;
+        report.tests[i].is_hash = (k_tests[i].kind == NGCC_TEST_HASH);
         report.tests[i].correctness_status = STATUS_SKIPPED;
         report.tests[i].performance_status = STATUS_SKIPPED;
         report.tests[i].stability_status = STATUS_SKIPPED;
@@ -754,8 +825,13 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    if (ngcc_load_library(opts.lib_path, opts.test_mask, &lib) != 0) {
+    lib_fd = ngcc_open_library_file(opts.lib_path);
+    if (lib_fd < 0) {
+        return 1;
+    }
+    if (ngcc_load_library_fd(lib_fd, opts.test_mask, &lib) != 0) {
         ngcc_log_error("[main] failed to load library: %s", opts.lib_path);
+        close(lib_fd);
         return 1;
     }
 
@@ -807,7 +883,7 @@ int main(int argc, char **argv) {
         int memory_failed;
         printf("[memory] BEGIN\n");
         fflush(stdout);
-        memory_failed = run_memory_mode(&opts, &report, &lib);
+        memory_failed = run_memory_mode(&opts, &report, lib_fd);
         printf("[memory] END status=%s\n", memory_failed != 0 ? "FAIL" : "PASS");
         fflush(stdout);
         if (memory_failed != 0) {
@@ -844,6 +920,7 @@ int main(int argc, char **argv) {
     }
 
     ngcc_unload_library(&lib);
+    close(lib_fd);
     ngcc_log_close();
     return failed ? 1 : 0;
 }
